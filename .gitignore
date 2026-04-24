@@ -1,0 +1,16 @@
+# Python
+ChatBot-Backend/__pycache__/
+ChatBot-Backend/*.pyc
+ChatBot-Backend/.env
+ChatBot-Backend/venv/
+ChatBot-Backend/.ipynb_checkpoints/
+
+# Node
+node_modules/
+ChatBot/react-ai-tool/dist/
+
+# IDE
+.vscode/
+
+# Claude Code
+.claude/
