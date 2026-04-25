@@ -17,6 +17,8 @@ interface IMessageBody {
   text?: string;
   base64Image?: string;
   imageUrl?: string;
+  confidence?: number;
+  sources?: string[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -27,7 +29,7 @@ function flattenMessages(chatMessages: IChatMessage[]): IMessageBody[] {
     .flatMap((chat) =>
       chat.parts.map((part): IMessageBody | null => {
         if ("text" in part)
-          return { role: chat.role, type: ChatTypeEnum.Text, text: part.text };
+          return { role: chat.role, type: ChatTypeEnum.Text, text: part.text, confidence: chat.confidence, sources: chat.sources };
         if ("base64Image" in part)
           return { role: chat.role, type: ChatTypeEnum.Image, base64Image: part.base64Image };
         if ("imageUrl" in part)
@@ -81,6 +83,9 @@ const ImageMessage: React.FC<{ msg: IMessageBody }> = ({ msg }) => {
   );
 };
 
+const confidenceColor = (c: number) =>
+  c >= 0.8 ? "text-green-400" : c >= 0.5 ? "text-yellow-400" : "text-red-400";
+
 /** Renders a single chat bubble — user (right-aligned) or model (left-aligned). */
 const MessageBubble: React.FC<{ msg: IMessageBody }> = ({ msg }) => {
   const isUser = msg.role === RoleEnum.User;
@@ -104,6 +109,21 @@ const MessageBubble: React.FC<{ msg: IMessageBody }> = ({ msg }) => {
     <div className="px-4 py-1">
       <div className="text-white text-base max-w-[70%]">
         {content}
+        {msg.confidence !== undefined && (
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <span className={`font-medium ${confidenceColor(msg.confidence)}`}>
+              {Math.round(msg.confidence * 100)}% confident
+            </span>
+            {msg.sources && msg.sources.length > 0 && (
+              <div className="w-full text-zinc-400">
+                <span className="text-zinc-500">Sources: </span>
+                {msg.sources.map((s, i) => (
+                  <span key={i}>• {s} </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

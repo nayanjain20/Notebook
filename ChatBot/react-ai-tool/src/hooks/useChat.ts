@@ -32,7 +32,9 @@ export const useChat = () => {
       const data = await res.json();
       const botMessage: IChatMessage = {
         role: RoleEnum.Model,
-        parts: [{ text: data.response }],
+        parts: [{ text: data.answer }],
+        confidence: data.confidence,
+        sources: data.sources,
       };
       setMessages((prev) => [...prev, botMessage]);
     } catch {

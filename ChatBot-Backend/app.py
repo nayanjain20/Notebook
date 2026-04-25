@@ -17,6 +17,33 @@ client = AzureOpenAI(
 )
 DEPLOYMENT = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
 
+ANSWER_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "provide_answer",
+        "description": "Provide a structured answer to the user's question",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "answer": {
+                    "type": "string",
+                    "description": "A clear, helpful answer to the user's question"
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "Confidence in the answer, 0.0 (uncertain) to 1.0 (very confident)"
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Sources used. Leave empty if answering from general knowledge."
+                }
+            },
+            "required": ["answer", "confidence", "sources"]
+        }
+    }
+}
+
 @app.route('/')
 def index():
     return jsonify({"message": "Hello from GemBot Flask API!"})
@@ -47,11 +74,14 @@ def get_response():
         response = client.chat.completions.create(
             model=DEPLOYMENT,
             messages=openai_messages,
+            tools=[ANSWER_TOOL],
+            tool_choice={"type": "function", "function": {"name": "provide_answer"}},
             max_completion_tokens=800,
             temperature=0.7,
         )
-        bot_response = response.choices[0].message.content
-        return jsonify({"response": bot_response})
+        tool_call = response.choices[0].message.tool_calls[0]
+        structured = json.loads(tool_call.function.arguments)
+        return jsonify(structured)
     except Exception as e:
         app.logger.error(f"OpenAI API error: {e}")
         return jsonify({"error": "Failed to get a response from the AI service."}), 500
