@@ -2,6 +2,9 @@
 node_modules/
 ChatBot/react-ai-tool/dist/
 ChatBot-Backend/venv/
+ChatBot-Backend/docs/*
+!ChatBot-Backend/docs/.gitkeep
+ChatBot-Backend/chroma_db/
 .claude/
 
 # Byte-compiled / optimized / DLL files

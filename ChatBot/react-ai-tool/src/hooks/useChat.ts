@@ -3,7 +3,7 @@ import { RoleEnum, type IChatMessage } from "../App";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-export const useChat = () => {
+export const useChat = (useDocs: boolean) => {
   const [messages, setMessages] = React.useState<IChatMessage[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
 
@@ -22,7 +22,7 @@ export const useChat = () => {
       const res = await fetch(`${BASE_URL}/api/get_response`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: trimmed, history: messages }),
+        body: JSON.stringify({ message: trimmed, history: messages, use_docs: useDocs }),
       });
 
       if (!res.ok) {

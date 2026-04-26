@@ -4,11 +4,18 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import AzureOpenAI
 from dotenv import load_dotenv
+from werkzeug.utils import secure_filename
+from ingestion import extract_and_chunk, embed_and_store, search_docs, list_documents, delete_document
 
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+
+DOCS_DIR = "docs"
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+ALLOWED_EXTENSIONS = {"pdf", "txt"}
+os.makedirs(DOCS_DIR, exist_ok=True)
 
 client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
@@ -58,9 +65,25 @@ def get_response():
     if not user_message:
         return jsonify({"error": "message is required"}), 400
 
+    use_docs = data.get('use_docs', False)
+
     # Frontend uses role "model"; OpenAI expects "assistant"
     history = data.get('history', [])
-    openai_messages = [{"role": "system", "content": "You are a helpful assistant."}]
+    system_prompt = "You are a helpful assistant."
+
+    if use_docs:
+        chunks = search_docs(user_message)
+        if chunks:
+            context = "\n\n".join(
+                f"[Source: {c['metadata']['filename']}, Page {c['metadata']['page']}]\n{c['text']}"
+                for c in chunks
+            )
+            system_prompt = (
+                "You are a helpful assistant. Answer using only the document context below. "
+                "Always cite the source filename and page in your sources.\n\nContext:\n" + context
+            )
+
+    openai_messages = [{"role": "system", "content": system_prompt}]
     for msg in history:
         role = "assistant" if msg.get("role") == "model" else "user"
         for part in msg.get("parts", []):
@@ -85,6 +108,55 @@ def get_response():
     except Exception as e:
         app.logger.error(f"OpenAI API error: {e}")
         return jsonify({"error": "Failed to get a response from the AI service."}), 500
+
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    ext = file.filename.rsplit('.', 1)[-1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        return jsonify({"error": "Unsupported file type. Use PDF or TXT."}), 400
+
+    file.seek(0, 2)
+    size = file.tell()
+    file.seek(0)
+    if size > MAX_FILE_SIZE:
+        return jsonify({"error": "File exceeds 5 MB limit."}), 400
+
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(DOCS_DIR, filename)
+    file.save(filepath)
+
+    try:
+        chunks = extract_and_chunk(filepath, filename)
+        embed_and_store(chunks, filename)
+        return jsonify({"status": "indexed", "filename": filename, "chunks_indexed": len(chunks)})
+    except Exception as e:
+        app.logger.error(f"Ingestion error: {e}")
+        return jsonify({"error": "Failed to process document."}), 500
+
+
+@app.route('/api/docs', methods=['GET'])
+def get_docs():
+    return jsonify({"documents": list_documents()})
+
+
+@app.route('/api/docs/<filename>', methods=['DELETE'])
+def delete_doc(filename):
+    filepath = os.path.join(DOCS_DIR, filename)
+
+    delete_document(filename)
+
+    if os.path.exists(filepath):
+        os.remove(filepath)
+
+    return jsonify({"status": "deleted", "filename": filename})
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
