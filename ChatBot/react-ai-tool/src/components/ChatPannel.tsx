@@ -18,7 +18,7 @@ interface IMessageBody {
   base64Image?: string;
   imageUrl?: string;
   confidence?: number;
-  sources?: string[];
+  sources?: { filename: string; page: string; chunk_id: number }[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -115,11 +115,23 @@ const MessageBubble: React.FC<{ msg: IMessageBody }> = ({ msg }) => {
               {Math.round(msg.confidence * 100)}% confident
             </span>
             {msg.sources && msg.sources.length > 0 && (
-              <div className="w-full text-zinc-400">
-                <span className="text-zinc-500">Sources: </span>
-                {msg.sources.map((s, i) => (
-                  <span key={i}>• {s} </span>
-                ))}
+              <div className="w-full mt-1">
+                <span className="text-zinc-500 text-xs">Sources</span>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {msg.sources.map((s, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs"
+                    >
+                      <span className="text-zinc-500">📄</span>
+                      <span className="font-medium">{s.filename}</span>
+                      <span className="text-zinc-500">·</span>
+                      <span className="text-zinc-400">
+                        {s.page !== "N/A" ? `p. ${s.page}` : `part ${s.chunk_id + 1}`}
+                      </span>
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </div>
