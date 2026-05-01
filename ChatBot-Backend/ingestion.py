@@ -1,15 +1,24 @@
 import os
+import json
+import logging
+import requests
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 import chromadb
+from rank_bm25 import BM25Okapi
 from unstructured.partition.auto import partition
 from unstructured.chunking.title import chunk_by_title
 
 load_dotenv()
 
-EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+logger = logging.getLogger(__name__)
 
-_embed_client = AzureOpenAI(
+EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+CHAT_DEPLOYMENT = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+COHERE_RERANK_ENDPOINT = os.getenv("AZURE_COHERE_RERANK_ENDPOINT")
+COHERE_API_KEY = os.getenv("AZURE_COHERE_API_KEY")
+
+_client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
     api_version=os.getenv("AZURE_OPENAI_CHAT_API_VERSION"),
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
@@ -18,14 +27,40 @@ _embed_client = AzureOpenAI(
 _chroma = chromadb.PersistentClient(path="chroma_db")
 _collection = _chroma.get_or_create_collection("documents")
 
+# BM25 index — kept in memory, rebuilt on every upload/delete
+_bm25: BM25Okapi | None = None
+_bm25_ids: list = []
+_bm25_docs: list = []
+
+
+def _rebuild_bm25():
+    global _bm25, _bm25_ids, _bm25_docs
+    if _collection.count() == 0:
+        _bm25, _bm25_ids, _bm25_docs = None, [], []
+        logger.info("[BM25] Index cleared (no documents in collection)")
+        return
+    all_items = _collection.get()
+    _bm25_ids = all_items["ids"]
+    _bm25_docs = all_items["documents"]
+    _bm25 = BM25Okapi([doc.lower().split() for doc in _bm25_docs])
+    logger.info(f"[BM25] Index rebuilt — {len(_bm25_docs)} chunks indexed")
+
+
+_rebuild_bm25()
+
+
+# ─── Embedding ────────────────────────────────────────────────────────────────
 
 def _embed(text: str) -> list:
-    response = _embed_client.embeddings.create(model=EMBEDDING_DEPLOYMENT, input=text)
+    response = _client.embeddings.create(model=EMBEDDING_DEPLOYMENT, input=text)
     return response.data[0].embedding
 
 
+# ─── Ingestion ────────────────────────────────────────────────────────────────
+
 def extract_and_chunk(filepath: str, filename: str) -> list:
     """Parse file with unstructured, chunk by section, return list of chunk dicts."""
+    logger.info(f"[Ingest] Parsing '{filename}'")
     elements = partition(filepath)
     chunks = chunk_by_title(elements, max_characters=2000, overlap=200)
 
@@ -42,53 +77,254 @@ def extract_and_chunk(filepath: str, filename: str) -> list:
 
         result.append({
             "text": text,
-            "metadata": {
-                "filename": filename,
-                "chunk_id": i,
-                "page": str(page),
-            }
+            "metadata": {"filename": filename, "chunk_id": i, "page": str(page)},
         })
-        
+
+    logger.info(f"[Ingest] '{filename}' → {len(result)} chunks extracted")
     return result
 
 
 def embed_and_store(chunks: list, filename: str):
-    """Embed chunks and upsert into ChromaDB. Re-uploading the same file replaces old chunks."""
+    """Embed chunks, store in ChromaDB, rebuild BM25 index."""
     if not chunks:
+        logger.warning(f"[Ingest] No chunks to embed for '{filename}'")
         return
 
     existing = _collection.get(where={"filename": filename})
     if existing["ids"]:
+        logger.info(f"[Ingest] Replacing {len(existing['ids'])} existing chunks for '{filename}'")
         _collection.delete(ids=existing["ids"])
 
     ids = [f"{filename}__chunk_{i}" for i in range(len(chunks))]
     texts = [c["text"] for c in chunks]
     metadatas = [c["metadata"] for c in chunks]
+
+    logger.info(f"[Ingest] Embedding {len(chunks)} chunks for '{filename}'...")
     embeddings = [_embed(t) for t in texts]
 
     _collection.add(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas)
+    logger.info(f"[Ingest] Stored {len(chunks)} chunks in ChromaDB. Total in collection: {_collection.count()}")
+    _rebuild_bm25()
 
 
-def search_docs(query: str, top_k: int = 3) -> list:
-    """Embed query and return top-k most relevant chunks with metadata."""
+# ─── Retrieval primitives ─────────────────────────────────────────────────────
+
+def _semantic_search(query: str, top_k: int = 10) -> list:
     count = _collection.count()
     if count == 0:
         return []
-
-    query_embedding = _embed(query)
     results = _collection.query(
-        query_embeddings=[query_embedding],
+        query_embeddings=[_embed(query)],
         n_results=min(top_k, count),
     )
+    hits = [
+        {"id": id_, "text": doc, "metadata": meta}
+        for id_, doc, meta in zip(
+            results["ids"][0], results["documents"][0], results["metadatas"][0]
+        )
+    ]
+    logger.debug(f"[Semantic] '{query[:60]}' → {len(hits)} hits")
+    return hits
 
-    return [
-        {"text": doc, "metadata": meta}
-        for doc, meta in zip(results["documents"][0], results["metadatas"][0])
+
+def _keyword_search(query: str, top_k: int = 10) -> list:
+    if _bm25 is None or not _bm25_ids:
+        return []
+    scores = _bm25.get_scores(query.lower().split())
+    top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
+    top_indices = [i for i in top_indices if scores[i] > 0]
+    if not top_indices:
+        logger.debug(f"[BM25] '{query[:60]}' → 0 hits (no positive scores)")
+        return []
+    ids = [_bm25_ids[i] for i in top_indices]
+    results = _collection.get(ids=ids)
+    hits = [
+        {"id": id_, "text": doc, "metadata": meta}
+        for id_, doc, meta in zip(results["ids"], results["documents"], results["metadatas"])
+    ]
+    logger.debug(f"[BM25] '{query[:60]}' → {len(hits)} hits")
+    return hits
+
+
+def _rrf(ranked_lists: list, weights: list = None, k: int = 60) -> list:
+    """Reciprocal Rank Fusion across multiple ranked lists with optional per-list weights."""
+    if weights is None:
+        weights = [1.0] * len(ranked_lists)
+    scores = {}
+    chunks_map = {}
+    for ranked_list, weight in zip(ranked_lists, weights):
+        for rank, chunk in enumerate(ranked_list):
+            cid = chunk["id"]
+            scores[cid] = scores.get(cid, 0.0) + weight / (k + rank + 1)
+            chunks_map[cid] = chunk
+    return [chunks_map[cid] for cid in sorted(scores, key=scores.get, reverse=True)]
+
+
+# ─── Multi-Query Generation ───────────────────────────────────────────────────
+
+def _format_history(history: list) -> str:
+    """Convert frontend history to a compact readable string for the LLM."""
+    lines = []
+    for msg in history[-6:]:  # last 3 turns max
+        role = "User" if msg.get("role") == "user" else "Assistant"
+        for part in msg.get("parts", []):
+            if "text" in part and part["text"]:
+                lines.append(f"{role}: {part['text']}")
+                break
+    return "\n".join(lines)
+
+
+def _llm_json_list(messages: list, n: int) -> list:
+    """Call the LLM and parse a JSON array response."""
+    response = _client.chat.completions.create(
+        model=CHAT_DEPLOYMENT,
+        messages=messages,
+        temperature=0.8,
+        max_completion_tokens=300,
+    )
+    text = response.choices[0].message.content.strip()
+    if "```" in text:
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return json.loads(text.strip())[:n]
+
+
+def _generate_query_variations(query: str, history: list = None, n: int = 5) -> list:
+    """
+    Two LLM calls — half the variations use conversation history to resolve
+    context (e.g. 'Tell about 2013' → 'Microsoft revenue in 2013'), the other
+    half rephrase the query in isolation for broader lexical coverage.
+    """
+    n_ctx = n // 2 + n % 2   # 3 when n=5
+    n_free = n // 2           # 2 when n=5
+
+    history_str = _format_history(history) if history else ""
+
+    # Call 1 — context-aware (uses history to resolve pronouns/references)
+    if history_str:
+        ctx_messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"Given the conversation history below, generate {n_ctx} search queries that "
+                    "rephrase the user's latest question with full context resolved "
+                    "(replace pronouns, fill in implicit references from history). "
+                    "Return ONLY a valid JSON array of strings, no explanation.\n\n"
+                    f"History:\n{history_str}"
+                ),
+            },
+            {"role": "user", "content": query},
+        ]
+    else:
+        ctx_messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"Generate {n_ctx} different phrasings of the user's question from different angles. "
+                    "Return ONLY a valid JSON array of strings, no explanation."
+                ),
+            },
+            {"role": "user", "content": query},
+        ]
+
+    # Call 2 — standalone (treats the query in isolation for lexical diversity)
+    free_messages = [
+        {
+            "role": "system",
+            "content": (
+                f"Generate {n_free} alternative phrasings of this question as if it stands completely "
+                "alone, using different vocabulary and sentence structure. "
+                "Return ONLY a valid JSON array of strings, no explanation."
+            ),
+        },
+        {"role": "user", "content": query},
     ]
 
+    ctx_vars = _llm_json_list(ctx_messages, n_ctx)
+    free_vars = _llm_json_list(free_messages, n_free)
+    return ctx_vars + free_vars
+
+
+# ─── Reranking ────────────────────────────────────────────────────────────────
+
+def _rerank(query: str, chunks: list, top_n: int = 5) -> list:
+    """Rerank candidates against the original query using Azure Cohere Rerank."""
+    if not chunks:
+        return []
+    response = requests.post(
+        COHERE_RERANK_ENDPOINT,
+        headers={"api-key": COHERE_API_KEY, "Content-Type": "application/json"},
+        json={
+            "model": "Cohere-rerank-v4.0-fast",
+            "query": query,
+            "documents": [c["text"] for c in chunks],
+            "top_n": min(top_n, len(chunks)),
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    reranked = [chunks[r["index"]] for r in response.json()["results"]]
+    logger.info(f"[Rerank] {len(chunks)} candidates → top {len(reranked)} returned")
+    for i, (chunk, r) in enumerate(zip(reranked, response.json()["results"]), 1):
+        logger.info(f"  #{i} score={r['relevance_score']:.4f}  {chunk['metadata']['filename']} p.{chunk['metadata']['page']}")
+    return reranked
+
+
+# ─── Advanced RAG pipeline ───────────────────────────────────────────────────
+
+def advanced_search(query: str, top_n: int = 5, history: list = None) -> list:
+    """
+    Multi-query × hybrid retrieval × RRF × cross-query RRF × rerank.
+    Returns top_n reranked chunks with id, text, and metadata.
+    """
+    if _collection.count() == 0:
+        logger.info("[RAG] Collection empty — skipping search")
+        return []
+
+    logger.info(f"[RAG] Query: '{query}'")
+
+    # Step 1 — Generate query variations (fallback to original if LLM fails)
+    try:
+        variations = _generate_query_variations(query, history=history, n=5)
+        logger.info(f"[RAG] Step 1 — Generated {len(variations)} query variations")
+        for i, v in enumerate(variations, 1):
+            logger.info(f"  v{i}: {v}")
+    except Exception as e:
+        logger.warning(f"[RAG] Step 1 — Query variation failed ({e}), using original only")
+        variations = []
+    all_queries = [query] + variations
+
+    # Step 2 — Hybrid retrieval + RRF (0.7 semantic / 0.3 keyword) per query
+    per_query_results = []
+    for i, q in enumerate(all_queries):
+        label = "original" if i == 0 else f"v{i}"
+        semantic = _semantic_search(q, top_k=10)
+        keyword = _keyword_search(q, top_k=10)
+        fused = _rrf([semantic, keyword], weights=[0.7, 0.3])
+        logger.info(f"[RAG] Step 2 [{label}] semantic={len(semantic)}, keyword={len(keyword)}, after RRF={len(fused)}")
+        per_query_results.append(fused)
+
+    # Step 3 — Cross-query RRF (equal weight across all query variations)
+    merged = _rrf(per_query_results)
+    logger.info(f"[RAG] Step 3 — Cross-query RRF: {len(merged)} unique candidates")
+
+    # Step 4 — Rerank top 20 candidates, return top_n
+    candidates = merged[:20]
+    logger.info(f"[RAG] Step 4 — Sending top {len(candidates)} candidates to reranker")
+    try:
+        results = _rerank(query, candidates, top_n=top_n)
+    except Exception as e:
+        logger.warning(f"[RAG] Step 4 — Reranking failed ({e}), falling back to RRF results")
+        results = candidates[:top_n]
+
+    logger.info(f"[RAG] Done — returning {len(results)} chunks to LLM")
+    return results
+
+
+# ─── Utilities ───────────────────────────────────────────────────────────────
 
 def list_documents() -> list:
-    """Return sorted list of unique filenames currently indexed."""
     if _collection.count() == 0:
         return []
     all_items = _collection.get()
@@ -96,7 +332,8 @@ def list_documents() -> list:
 
 
 def delete_document(filename: str):
-    """Delete all embeddings for a filename from ChromaDB."""
     existing = _collection.get(where={"filename": filename})
     if existing["ids"]:
+        logger.info(f"[Ingest] Deleting {len(existing['ids'])} chunks for '{filename}'")
         _collection.delete(ids=existing["ids"])
+    _rebuild_bm25()

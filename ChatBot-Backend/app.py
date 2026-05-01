@@ -1,13 +1,20 @@
 import os
 import json
+import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
-from ingestion import extract_and_chunk, embed_and_store, search_docs, list_documents, delete_document
+from ingestion import extract_and_chunk, embed_and_store, advanced_search, list_documents, delete_document
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 app = Flask(__name__)
 CORS(app)
@@ -40,13 +47,13 @@ ANSWER_TOOL = {
                     "type": "number",
                     "description": "Confidence in the answer, 0.0 (uncertain) to 1.0 (very confident)"
                 },
-                "sources": {
+                "source_indices": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Sources used. Leave empty if answering from general knowledge."
+                    "items": {"type": "integer"},
+                    "description": "1-based indices of the context sources you actually used. Leave empty if answering from general knowledge."
                 }
             },
-            "required": ["answer", "confidence", "sources"]
+            "required": ["answer", "confidence", "source_indices"]
         }
     }
 }
@@ -67,20 +74,29 @@ def get_response():
 
     use_docs = data.get('use_docs', False)
 
+    app.logger.info(f"[Request] use_docs={use_docs}  message='{user_message[:80]}'")
+
     # Frontend uses role "model"; OpenAI expects "assistant"
     history = data.get('history', [])
     system_prompt = "You are a helpful assistant."
 
+    retrieved_chunks = []
     if use_docs:
-        chunks = search_docs(user_message)
-        if chunks:
+        retrieved_chunks = advanced_search(user_message, history=history)
+        app.logger.info(f"[Request] Retrieved {len(retrieved_chunks)} chunks from advanced_search")
+        if retrieved_chunks:
+            def _chunk_header(i, c):
+                meta = c["metadata"]
+                page = "" if meta["page"] == "N/A" else f", p.{meta['page']}"
+                return f"[{i+1}] {meta['filename']} (part {meta['chunk_id']+1}{page})"
             context = "\n\n".join(
-                f"[Source: {c['metadata']['filename']}, Page {c['metadata']['page']}]\n{c['text']}"
-                for c in chunks
+                f"{_chunk_header(i, c)}\n{c['text']}"
+                for i, c in enumerate(retrieved_chunks)
             )
             system_prompt = (
-                "You are a helpful assistant. Answer using only the document context below. "
-                "Always cite the source filename and page in your sources.\n\nContext:\n" + context
+                "You are a helpful assistant. Answer using only the numbered context sources below. "
+                "In source_indices, return only the numbers of sources you actually used.\n\n"
+                "Context:\n" + context
             )
 
     openai_messages = [{"role": "system", "content": system_prompt}]
@@ -104,6 +120,26 @@ def get_response():
         )
         tool_call = response.choices[0].message.tool_calls[0]
         structured = json.loads(tool_call.function.arguments)
+        app.logger.info(f"[Request] LLM confidence={structured.get('confidence', '?')}  used_sources={structured.get('source_indices', [])}")
+
+        # Build sources only from chunks the LLM actually cited
+        used_indices = structured.pop("source_indices", [])
+        seen = set()
+        unique_sources = []
+        for idx in used_indices:
+            i = idx - 1  # convert 1-based to 0-based
+            if i < 0 or i >= len(retrieved_chunks):
+                continue
+            meta = retrieved_chunks[i]["metadata"]
+            key = (meta["filename"], meta["page"]) if meta["page"] != "N/A" else (meta["filename"], meta["chunk_id"])
+            if key not in seen:
+                seen.add(key)
+                unique_sources.append({
+                    "filename": meta["filename"],
+                    "page": meta["page"],
+                    "chunk_id": meta["chunk_id"],
+                })
+        structured["sources"] = unique_sources
         return jsonify(structured)
     except Exception as e:
         app.logger.error(f"OpenAI API error: {e}")

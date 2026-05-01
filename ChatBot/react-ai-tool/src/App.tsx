@@ -17,7 +17,7 @@ export interface IChatMessage {
   role: IRoleTypes;
   parts: ChatPart[];
   confidence?: number;
-  sources?: string[];
+  sources?: { filename: string; page: string; chunk_id: number }[];
 }
 
 export const RoleEnum = {
