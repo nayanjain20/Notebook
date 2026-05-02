@@ -6,7 +6,11 @@ from flask_cors import CORS
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
-from ingestion import extract_and_chunk, embed_and_store, advanced_search, list_documents, delete_document
+from ingestion import (
+    extract_and_chunk, embed_and_store, advanced_search,
+    list_documents, delete_document, delete_session_documents,
+)
+import db
 
 load_dotenv()
 
@@ -18,6 +22,8 @@ logging.basicConfig(
 
 app = Flask(__name__)
 CORS(app)
+
+db.init_db()
 
 DOCS_DIR = "docs"
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
@@ -62,6 +68,8 @@ ANSWER_TOOL = {
 def index():
     return jsonify({"message": "Hello from GemBot Flask API!"})
 
+# ─── Chat ─────────────────────────────────────────────────────────────────────
+
 @app.route('/api/get_response', methods=['POST'])
 def get_response():
     data = request.get_json()
@@ -73,17 +81,20 @@ def get_response():
         return jsonify({"error": "message is required"}), 400
 
     use_docs = data.get('use_docs', False)
+    session_id = data.get('session_id')
 
-    app.logger.info(f"[Request] use_docs={use_docs}  message='{user_message[:80]}'")
+    app.logger.info(f"[Request] session={session_id}  use_docs={use_docs}  message='{user_message[:80]}'")
 
-    # Frontend uses role "model"; OpenAI expects "assistant"
     history = data.get('history', [])
     system_prompt = "You are a helpful assistant."
 
     retrieved_chunks = []
     if use_docs:
-        retrieved_chunks = advanced_search(user_message, history=history)
-        app.logger.info(f"[Request] Retrieved {len(retrieved_chunks)} chunks from advanced_search")
+        if not session_id:
+            app.logger.warning("[Request] use_docs=True but no session_id — skipping RAG")
+        else:
+            retrieved_chunks = advanced_search(user_message, history=history, session_id=session_id)
+            app.logger.info(f"[Request] Retrieved {len(retrieved_chunks)} chunks from advanced_search")
         if retrieved_chunks:
             def _chunk_header(i, c):
                 meta = c["metadata"]
@@ -109,6 +120,11 @@ def get_response():
 
     openai_messages.append({"role": "user", "content": user_message})
 
+    is_first = session_id and db.is_first_message(session_id)
+
+    if session_id:
+        db.save_message(session_id, "user", [{"text": user_message}])
+
     try:
         response = client.chat.completions.create(
             model=DEPLOYMENT,
@@ -122,12 +138,11 @@ def get_response():
         structured = json.loads(tool_call.function.arguments)
         app.logger.info(f"[Request] LLM confidence={structured.get('confidence', '?')}  used_sources={structured.get('source_indices', [])}")
 
-        # Build sources only from chunks the LLM actually cited
         used_indices = structured.pop("source_indices", [])
         seen = set()
         unique_sources = []
         for idx in used_indices:
-            i = idx - 1  # convert 1-based to 0-based
+            i = idx - 1
             if i < 0 or i >= len(retrieved_chunks):
                 continue
             meta = retrieved_chunks[i]["metadata"]
@@ -140,10 +155,80 @@ def get_response():
                     "chunk_id": meta["chunk_id"],
                 })
         structured["sources"] = unique_sources
+
+        if session_id:
+            db.save_message(
+                session_id, "model",
+                [{"text": structured["answer"]}],
+                confidence=structured.get("confidence"),
+                sources=unique_sources or None,
+            )
+
+        if is_first and session_id:
+            try:
+                title_response = client.chat.completions.create(
+                    model=DEPLOYMENT,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Generate a concise 3-6 word title that captures the topic of this conversation. "
+                                "Return ONLY the title — no quotes, no punctuation at the end."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": f"User: {user_message}\nAssistant: {structured['answer'][:300]}",
+                        },
+                    ],
+                    max_completion_tokens=20,
+                    temperature=0.4,
+                )
+                title = title_response.choices[0].message.content.strip()
+                db.update_session_title(session_id, title)
+                structured["session_title"] = title
+                app.logger.info(f"[Session] Title set: '{title}'")
+            except Exception as e:
+                app.logger.warning(f"[Session] Title generation failed: {e}")
+
         return jsonify(structured)
     except Exception as e:
         app.logger.error(f"OpenAI API error: {e}")
         return jsonify({"error": "Failed to get a response from the AI service."}), 500
+
+# ─── Sessions ─────────────────────────────────────────────────────────────────
+
+@app.route('/api/sessions', methods=['GET'])
+def get_sessions():
+    return jsonify({"sessions": db.list_sessions()})
+
+
+@app.route('/api/sessions', methods=['POST'])
+def create_session():
+    session = db.create_session()
+    return jsonify(session), 201
+
+
+@app.route('/api/sessions/<session_id>', methods=['GET'])
+def get_session(session_id):
+    messages = db.get_session_messages(session_id)
+    return jsonify({"messages": messages})
+
+
+@app.route('/api/sessions/<session_id>', methods=['DELETE'])
+def delete_session_route(session_id):
+    db.delete_session(session_id)
+    delete_session_documents(session_id)
+
+    # Remove session's docs directory from disk
+    session_dir = os.path.join(DOCS_DIR, session_id)
+    if os.path.isdir(session_dir):
+        import shutil
+        shutil.rmtree(session_dir)
+
+    return jsonify({"status": "deleted"})
+
+# ─── Documents ────────────────────────────────────────────────────────────────
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
@@ -153,6 +238,10 @@ def upload_file():
     file = request.files['file']
     if not file.filename:
         return jsonify({"error": "No file selected"}), 400
+
+    session_id = request.form.get("session_id")
+    if not session_id:
+        return jsonify({"error": "session_id is required"}), 400
 
     ext = file.filename.rsplit('.', 1)[-1].lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -165,12 +254,14 @@ def upload_file():
         return jsonify({"error": "File exceeds 5 MB limit."}), 400
 
     filename = secure_filename(file.filename)
-    filepath = os.path.join(DOCS_DIR, filename)
+    session_dir = os.path.join(DOCS_DIR, session_id)
+    os.makedirs(session_dir, exist_ok=True)
+    filepath = os.path.join(session_dir, filename)
     file.save(filepath)
 
     try:
         chunks = extract_and_chunk(filepath, filename)
-        embed_and_store(chunks, filename)
+        embed_and_store(chunks, filename, session_id)
         return jsonify({"status": "indexed", "filename": filename, "chunks_indexed": len(chunks)})
     except Exception as e:
         app.logger.error(f"Ingestion error: {e}")
@@ -179,15 +270,21 @@ def upload_file():
 
 @app.route('/api/docs', methods=['GET'])
 def get_docs():
-    return jsonify({"documents": list_documents()})
+    session_id = request.args.get("session_id")
+    if not session_id:
+        return jsonify({"error": "session_id is required"}), 400
+    return jsonify({"documents": list_documents(session_id)})
 
 
 @app.route('/api/docs/<filename>', methods=['DELETE'])
 def delete_doc(filename):
-    filepath = os.path.join(DOCS_DIR, filename)
+    session_id = request.args.get("session_id")
+    if not session_id:
+        return jsonify({"error": "session_id is required"}), 400
 
-    delete_document(filename)
+    delete_document(filename, session_id)
 
+    filepath = os.path.join(DOCS_DIR, session_id, filename)
     if os.path.exists(filepath):
         os.remove(filepath)
 

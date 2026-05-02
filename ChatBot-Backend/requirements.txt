@@ -6,3 +6,4 @@ openai
 chromadb
 unstructured[pdf]
 rank-bm25
+python-magic-bin
