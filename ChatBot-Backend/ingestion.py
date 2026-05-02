@@ -27,26 +27,24 @@ _client = AzureOpenAI(
 _chroma = chromadb.PersistentClient(path="chroma_db")
 _collection = _chroma.get_or_create_collection("documents")
 
-# BM25 index — kept in memory, rebuilt on every upload/delete
-_bm25: BM25Okapi | None = None
-_bm25_ids: list = []
-_bm25_docs: list = []
+# Per-session BM25 indexes — rebuilt on every upload/delete for that session.
+# Each entry: {"bm25": BM25Okapi, "ids": list[str], "docs": list[str]}
+# In a multi-worker deployment each worker maintains its own copy (acceptable: it's a cache of ChromaDB data).
+_bm25_index: dict = {}
 
 
-def _rebuild_bm25():
-    global _bm25, _bm25_ids, _bm25_docs
-    if _collection.count() == 0:
-        _bm25, _bm25_ids, _bm25_docs = None, [], []
-        logger.info("[BM25] Index cleared (no documents in collection)")
+def _rebuild_bm25(session_id: str):
+    result = _collection.get(where={"session_id": {"$eq": session_id}})
+    if not result["ids"]:
+        _bm25_index.pop(session_id, None)
+        logger.info(f"[BM25] Session {session_id[:8]}… — index cleared (no docs)")
         return
-    all_items = _collection.get()
-    _bm25_ids = all_items["ids"]
-    _bm25_docs = all_items["documents"]
-    _bm25 = BM25Okapi([doc.lower().split() for doc in _bm25_docs])
-    logger.info(f"[BM25] Index rebuilt — {len(_bm25_docs)} chunks indexed")
-
-
-_rebuild_bm25()
+    _bm25_index[session_id] = {
+        "bm25": BM25Okapi([doc.lower().split() for doc in result["documents"]]),
+        "ids": result["ids"],
+        "docs": result["documents"],
+    }
+    logger.info(f"[BM25] Session {session_id[:8]}… — {len(result['ids'])} chunks indexed")
 
 
 # ─── Embedding ────────────────────────────────────────────────────────────────
@@ -84,38 +82,46 @@ def extract_and_chunk(filepath: str, filename: str) -> list:
     return result
 
 
-def embed_and_store(chunks: list, filename: str):
-    """Embed chunks, store in ChromaDB, rebuild BM25 index."""
+def embed_and_store(chunks: list, filename: str, session_id: str):
+    """Embed chunks, store in ChromaDB under the given session, rebuild BM25 for that session."""
     if not chunks:
         logger.warning(f"[Ingest] No chunks to embed for '{filename}'")
         return
 
-    existing = _collection.get(where={"filename": filename})
+    existing = _collection.get(where={
+        "$and": [{"filename": {"$eq": filename}}, {"session_id": {"$eq": session_id}}]
+    })
     if existing["ids"]:
-        logger.info(f"[Ingest] Replacing {len(existing['ids'])} existing chunks for '{filename}'")
+        logger.info(f"[Ingest] Replacing {len(existing['ids'])} existing chunks for '{filename}' in session {session_id[:8]}…")
         _collection.delete(ids=existing["ids"])
 
-    ids = [f"{filename}__chunk_{i}" for i in range(len(chunks))]
+    ids = [f"{session_id}__{filename}__chunk_{i}" for i in range(len(chunks))]
     texts = [c["text"] for c in chunks]
-    metadatas = [c["metadata"] for c in chunks]
+    metadatas = [
+        {**c["metadata"], "session_id": session_id}
+        for c in chunks
+    ]
 
-    logger.info(f"[Ingest] Embedding {len(chunks)} chunks for '{filename}'...")
+    logger.info(f"[Ingest] Embedding {len(chunks)} chunks for '{filename}'…")
     embeddings = [_embed(t) for t in texts]
 
     _collection.add(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas)
-    logger.info(f"[Ingest] Stored {len(chunks)} chunks in ChromaDB. Total in collection: {_collection.count()}")
-    _rebuild_bm25()
+    logger.info(f"[Ingest] Stored {len(chunks)} chunks. Collection total: {_collection.count()}")
+    _rebuild_bm25(session_id)
 
 
 # ─── Retrieval primitives ─────────────────────────────────────────────────────
 
-def _semantic_search(query: str, top_k: int = 10) -> list:
-    count = _collection.count()
+def _semantic_search(query: str, top_k: int = 10, session_id: str = None) -> list:
+    where = {"session_id": {"$eq": session_id}} if session_id else None
+    existing = _collection.get(where=where) if where else _collection.get()
+    count = len(existing["ids"])
     if count == 0:
         return []
     results = _collection.query(
         query_embeddings=[_embed(query)],
         n_results=min(top_k, count),
+        where=where,
     )
     hits = [
         {"id": id_, "text": doc, "metadata": meta}
@@ -127,16 +133,17 @@ def _semantic_search(query: str, top_k: int = 10) -> list:
     return hits
 
 
-def _keyword_search(query: str, top_k: int = 10) -> list:
-    if _bm25 is None or not _bm25_ids:
+def _keyword_search(query: str, top_k: int = 10, session_id: str = None) -> list:
+    entry = _bm25_index.get(session_id) if session_id else None
+    if not entry:
         return []
-    scores = _bm25.get_scores(query.lower().split())
+    scores = entry["bm25"].get_scores(query.lower().split())
     top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
     top_indices = [i for i in top_indices if scores[i] > 0]
     if not top_indices:
-        logger.debug(f"[BM25] '{query[:60]}' → 0 hits (no positive scores)")
+        logger.debug(f"[BM25] '{query[:60]}' → 0 hits")
         return []
-    ids = [_bm25_ids[i] for i in top_indices]
+    ids = [entry["ids"][i] for i in top_indices]
     results = _collection.get(ids=ids)
     hits = [
         {"id": id_, "text": doc, "metadata": meta}
@@ -201,7 +208,6 @@ def _generate_query_variations(query: str, history: list = None, n: int = 5) -> 
 
     history_str = _format_history(history) if history else ""
 
-    # Call 1 — context-aware (uses history to resolve pronouns/references)
     if history_str:
         ctx_messages = [
             {
@@ -228,7 +234,6 @@ def _generate_query_variations(query: str, history: list = None, n: int = 5) -> 
             {"role": "user", "content": query},
         ]
 
-    # Call 2 — standalone (treats the query in isolation for lexical diversity)
     free_messages = [
         {
             "role": "system",
@@ -273,16 +278,19 @@ def _rerank(query: str, chunks: list, top_n: int = 5) -> list:
 
 # ─── Advanced RAG pipeline ───────────────────────────────────────────────────
 
-def advanced_search(query: str, top_n: int = 5, history: list = None) -> list:
+def advanced_search(query: str, top_n: int = 5, history: list = None, session_id: str = None) -> list:
     """
     Multi-query × hybrid retrieval × RRF × cross-query RRF × rerank.
     Returns top_n reranked chunks with id, text, and metadata.
     """
-    if _collection.count() == 0:
-        logger.info("[RAG] Collection empty — skipping search")
-        return []
+    # Check for session documents
+    if session_id and session_id not in _bm25_index:
+        probe = _collection.get(where={"session_id": {"$eq": session_id}})
+        if not probe["ids"]:
+            logger.info(f"[RAG] No documents for session {session_id[:8]}… — skipping")
+            return []
 
-    logger.info(f"[RAG] Query: '{query}'")
+    logger.info(f"[RAG] Query: '{query}'  session={session_id[:8] if session_id else 'none'}…")
 
     # Step 1 — Generate query variations (fallback to original if LLM fails)
     try:
@@ -299,17 +307,17 @@ def advanced_search(query: str, top_n: int = 5, history: list = None) -> list:
     per_query_results = []
     for i, q in enumerate(all_queries):
         label = "original" if i == 0 else f"v{i}"
-        semantic = _semantic_search(q, top_k=10)
-        keyword = _keyword_search(q, top_k=10)
+        semantic = _semantic_search(q, top_k=10, session_id=session_id)
+        keyword = _keyword_search(q, top_k=10, session_id=session_id)
         fused = _rrf([semantic, keyword], weights=[0.7, 0.3])
         logger.info(f"[RAG] Step 2 [{label}] semantic={len(semantic)}, keyword={len(keyword)}, after RRF={len(fused)}")
         per_query_results.append(fused)
 
-    # Step 3 — Cross-query RRF (equal weight across all query variations)
+    # Step 3 — Cross-query RRF
     merged = _rrf(per_query_results)
     logger.info(f"[RAG] Step 3 — Cross-query RRF: {len(merged)} unique candidates")
 
-    # Step 4 — Rerank top 20 candidates, return top_n
+    # Step 4 — Rerank top 20, return top_n
     candidates = merged[:20]
     logger.info(f"[RAG] Step 4 — Sending top {len(candidates)} candidates to reranker")
     try:
@@ -324,16 +332,25 @@ def advanced_search(query: str, top_n: int = 5, history: list = None) -> list:
 
 # ─── Utilities ───────────────────────────────────────────────────────────────
 
-def list_documents() -> list:
-    if _collection.count() == 0:
-        return []
-    all_items = _collection.get()
-    return sorted({m["filename"] for m in all_items["metadatas"]})
+def list_documents(session_id: str) -> list:
+    result = _collection.get(where={"session_id": {"$eq": session_id}})
+    return sorted({m["filename"] for m in result["metadatas"]}) if result["metadatas"] else []
 
 
-def delete_document(filename: str):
-    existing = _collection.get(where={"filename": filename})
+def delete_document(filename: str, session_id: str):
+    existing = _collection.get(where={
+        "$and": [{"filename": {"$eq": filename}}, {"session_id": {"$eq": session_id}}]
+    })
     if existing["ids"]:
-        logger.info(f"[Ingest] Deleting {len(existing['ids'])} chunks for '{filename}'")
+        logger.info(f"[Ingest] Deleting {len(existing['ids'])} chunks for '{filename}' in session {session_id[:8]}…")
         _collection.delete(ids=existing["ids"])
-    _rebuild_bm25()
+    _rebuild_bm25(session_id)
+
+
+def delete_session_documents(session_id: str):
+    """Remove all ChromaDB chunks and BM25 index for a session. Called on session deletion."""
+    existing = _collection.get(where={"session_id": {"$eq": session_id}})
+    if existing["ids"]:
+        _collection.delete(ids=existing["ids"])
+        logger.info(f"[Ingest] Deleted {len(existing['ids'])} chunks for session {session_id[:8]}…")
+    _bm25_index.pop(session_id, None)

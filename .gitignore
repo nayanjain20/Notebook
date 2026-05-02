@@ -5,6 +5,7 @@ ChatBot-Backend/venv/
 ChatBot-Backend/docs/*
 !ChatBot-Backend/docs/.gitkeep
 ChatBot-Backend/chroma_db/
+ChatBot-Backend/sessions.db
 .claude/
 
 # Byte-compiled / optimized / DLL files

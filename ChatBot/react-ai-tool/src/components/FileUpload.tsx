@@ -6,32 +6,40 @@ const MAX_SIZE_MB = 5;
 
 interface FileUploadProps {
   onDocsChange: (hasDocs: boolean) => void;
+  sessionId: string | null;
 }
 
-const FileUpload: React.FC<FileUploadProps> = ({ onDocsChange }) => {
+const FileUpload: React.FC<FileUploadProps> = ({ onDocsChange, sessionId }) => {
   const [documents, setDocuments] = React.useState<string[]>([]);
   const [uploading, setUploading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
-    fetch(`${BASE_URL}/api/docs`)
+    setDocuments([]);
+    onDocsChange(false);
+    if (!sessionId) return;
+
+    fetch(`${BASE_URL}/api/docs?session_id=${encodeURIComponent(sessionId)}`)
       .then((r) => r.json())
       .then((data) => {
-        setDocuments(data.documents ?? []);
-        onDocsChange((data.documents ?? []).length > 0);
+        const docs = data.documents ?? [];
+        setDocuments(docs);
+        onDocsChange(docs.length > 0);
       })
       .catch(() => {});
-  }, []);
+  }, [sessionId]);
 
   const handleFile = async (file: File) => {
     setError(null);
-
+    if (!sessionId) {
+      setError("Select a chat before uploading.");
+      return;
+    }
     if (file.size > MAX_SIZE_MB * 1024 * 1024) {
       setError(`File exceeds ${MAX_SIZE_MB} MB limit.`);
       return;
     }
-
     const ext = file.name.split(".").pop()?.toLowerCase();
     if (ext !== "pdf" && ext !== "txt") {
       setError("Only PDF and TXT files are supported.");
@@ -41,16 +49,15 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDocsChange }) => {
     setUploading(true);
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("session_id", sessionId);
 
     try {
       const res = await fetch(`${BASE_URL}/api/upload`, { method: "POST", body: formData });
       const data = await res.json();
-
       if (!res.ok) {
         setError(data.error ?? "Upload failed.");
         return;
       }
-
       const updated = [...new Set([...documents, data.filename])];
       setDocuments(updated);
       onDocsChange(true);
@@ -74,8 +81,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDocsChange }) => {
   };
 
   const handleDelete = async (filename: string) => {
+    if (!sessionId) return;
     try {
-      await fetch(`${BASE_URL}/api/docs/${encodeURIComponent(filename)}`, { method: "DELETE" });
+      await fetch(
+        `${BASE_URL}/api/docs/${encodeURIComponent(filename)}?session_id=${encodeURIComponent(sessionId)}`,
+        { method: "DELETE" }
+      );
       const updated = documents.filter((d) => d !== filename);
       setDocuments(updated);
       onDocsChange(updated.length > 0);
@@ -84,21 +95,30 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDocsChange }) => {
     }
   };
 
+  const disabled = !sessionId;
+
   return (
-    <div className="p-3 border-b border-zinc-700">
+    <div className="p-3">
       <div
-        onDrop={onDrop}
+        onDrop={disabled ? undefined : onDrop}
         onDragOver={(e) => e.preventDefault()}
-        onClick={() => inputRef.current?.click()}
-        className="border border-dashed border-zinc-600 rounded-xl p-3 flex flex-col items-center gap-1 cursor-pointer hover:border-zinc-400 transition-colors"
+        onClick={() => !disabled && inputRef.current?.click()}
+        className={`border border-dashed rounded-xl p-3 flex flex-col items-center gap-1 transition-colors
+          ${disabled
+            ? "border-zinc-700 opacity-40 cursor-not-allowed"
+            : "border-zinc-600 cursor-pointer hover:border-zinc-400"}`}
       >
         {uploading ? (
           <Loader size={18} className="animate-spin text-zinc-400" />
         ) : (
           <Upload size={18} className="text-zinc-400" />
         )}
-        <span className="text-xs text-zinc-400">
-          {uploading ? "Processing…" : "Drop PDF or TXT (max 5 MB)"}
+        <span className="text-xs text-zinc-400 text-center">
+          {disabled
+            ? "Select a chat to upload"
+            : uploading
+            ? "Processing…"
+            : "Drop PDF or TXT (max 5 MB)"}
         </span>
         <input
           ref={inputRef}
