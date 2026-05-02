@@ -1,22 +1,26 @@
 """
-Self-contained RAG pipeline for evaluation.
-Uses a separate ChromaDB path (eval_chroma_db/) so it never touches the main app's data.
+Eval RAG pipeline.
+Mirrors the main app's ingestion approach (unstructured + chunk_by_title)
+but writes to a separate eval_chroma_db/ and a single 'eval_docs' collection.
 """
 
 import os
 import chromadb
 from openai import AzureOpenAI
 from dotenv import load_dotenv
+from unstructured.partition.auto import partition
+from unstructured.chunking.title import chunk_by_title
 
 load_dotenv()
 
-_CHROMA_PATH = os.path.join(os.path.dirname(__file__), "..", "eval_chroma_db")
-_CHUNK_SIZE = 1000
-_CHUNK_OVERLAP = 150
+_CHROMA_PATH    = os.path.join(os.path.dirname(__file__), "..", "eval_chroma_db")
+EVAL_COLLECTION = "eval_docs"
+EVAL_DOCS_DIR   = os.path.join(os.path.dirname(__file__), "docs")
 
 _chroma = chromadb.PersistentClient(path=_CHROMA_PATH)
 
 
+# ── Azure clients ─────────────────────────────────────────────────────────────
 def _embed_client():
     return AzureOpenAI(
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
@@ -41,52 +45,97 @@ def _embed(texts: list[str]) -> list[list[float]]:
     return [item.embedding for item in response.data]
 
 
-def _chunk(text: str) -> list[str]:
-    chunks, start = [], 0
-    while start < len(text):
-        end = min(start + _CHUNK_SIZE, len(text))
-        chunks.append(text[start:end].strip())
-        if end == len(text):
-            break
-        start += _CHUNK_SIZE - _CHUNK_OVERLAP
-    return [c for c in chunks if c]
+# ── Chunking (matches main app ingestion.py) ──────────────────────────────────
+def _extract_chunks(filepath: str) -> list[dict]:
+    elements = partition(filename=filepath)
+    chunks   = chunk_by_title(elements, max_characters=2000, overlap=200)
+    result   = []
+    doc_file = os.path.basename(filepath)
+    for i, chunk in enumerate(chunks):
+        text = chunk.text.strip()
+        if not text:
+            continue
+        page = getattr(chunk.metadata, "page_number", None)
+        result.append({
+            "text":     text,
+            "metadata": {
+                "doc_file": doc_file,
+                "chunk_id": i,
+                "page":     str(page) if page else "N/A",
+            },
+        })
+    return result
 
 
-def ingest(filepath: str, collection_name: str) -> int:
-    """Chunk a text file, embed, and store in ChromaDB. Returns chunk count."""
-    with open(filepath, "r", encoding="utf-8") as f:
-        text = f.read()
+# ── Collection helpers ────────────────────────────────────────────────────────
+def collection_exists(collection_name: str = EVAL_COLLECTION) -> bool:
+    try:
+        _chroma.get_collection(collection_name)
+        return True
+    except Exception:
+        return False
 
-    chunks = _chunk(text)
 
+def clear_collection(collection_name: str = EVAL_COLLECTION):
     try:
         _chroma.delete_collection(collection_name)
     except Exception:
         pass
 
-    collection = _chroma.create_collection(collection_name)
-    embeddings = _embed(chunks)
-    collection.add(
-        documents=chunks,
-        embeddings=embeddings,
-        ids=[f"chunk_{i}" for i in range(len(chunks))],
-    )
+
+# ── Ingest ────────────────────────────────────────────────────────────────────
+def ingest(filepath: str, collection_name: str = EVAL_COLLECTION) -> int:
+    """Chunk a file with unstructured, embed, and store in ChromaDB. Returns chunk count."""
+    chunks = _extract_chunks(filepath)
+    if not chunks:
+        return 0
+
+    try:
+        collection = _chroma.get_collection(collection_name)
+    except Exception:
+        collection = _chroma.create_collection(collection_name)
+
+    doc_file   = os.path.basename(filepath)
+    texts      = [c["text"] for c in chunks]
+    embeddings = _embed(texts)
+    ids        = [f"{doc_file}__chunk_{c['metadata']['chunk_id']}" for c in chunks]
+    metadatas  = [c["metadata"] for c in chunks]
+
+    # Remove existing chunks for this doc_file before re-adding
+    try:
+        existing = collection.get(where={"doc_file": doc_file})
+        if existing["ids"]:
+            collection.delete(ids=existing["ids"])
+    except Exception:
+        pass
+
+    collection.add(documents=texts, embeddings=embeddings, ids=ids, metadatas=metadatas)
     return len(chunks)
 
 
-def retrieve(query: str, collection_name: str, top_k: int = 5) -> list[str]:
-    """Return top_k chunk texts most relevant to the query."""
-    collection = _chroma.get_collection(collection_name)
-    query_emb = _embed([query])[0]
-    results = collection.query(
+def ingest_all(collection_name: str = EVAL_COLLECTION) -> dict[str, int]:
+    """Ingest every file in eval/docs/ into the collection. Returns {filename: chunk_count}."""
+    results = {}
+    for fname in os.listdir(EVAL_DOCS_DIR):
+        fpath = os.path.join(EVAL_DOCS_DIR, fname)
+        if os.path.isfile(fpath):
+            results[fname] = ingest(fpath, collection_name)
+    return results
+
+
+# ── Retrieve ──────────────────────────────────────────────────────────────────
+def retrieve(query: str, collection_name: str = EVAL_COLLECTION, top_k: int = 5) -> list[str]:
+    collection  = _chroma.get_collection(collection_name)
+    query_emb   = _embed([query])[0]
+    results     = collection.query(
         query_embeddings=[query_emb],
         n_results=min(top_k, collection.count()),
     )
     return results["documents"][0]
 
 
+# ── Generate ──────────────────────────────────────────────────────────────────
 def generate(question: str, contexts: list[str]) -> str:
-    """Generate an answer from the question and retrieved context chunks."""
     context_str = "\n\n---\n\n".join(contexts)
     response = _chat_client().chat.completions.create(
         model=os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),
@@ -108,11 +157,3 @@ def generate(question: str, contexts: list[str]) -> str:
         temperature=0.0,
     )
     return response.choices[0].message.content.strip()
-
-
-def collection_exists(collection_name: str) -> bool:
-    try:
-        _chroma.get_collection(collection_name)
-        return True
-    except Exception:
-        return False

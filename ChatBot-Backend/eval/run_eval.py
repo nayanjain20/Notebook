@@ -16,7 +16,6 @@ Usage:
 """
 
 import os
-import sys
 import json
 import math
 import warnings
@@ -39,12 +38,11 @@ from ragas.metrics import (
 from ragas.llms import LangchainLLMWrapper
 from ragas.embeddings import LangchainEmbeddingsWrapper
 
-from eval.pipeline import ingest, retrieve, generate, collection_exists
+from eval.pipeline import ingest_all, retrieve, generate, collection_exists, EVAL_COLLECTION
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _EVAL_DIR    = os.path.dirname(__file__)
 _BACKEND_DIR = os.path.join(_EVAL_DIR, "..")
-DOCS_DIR     = os.path.join(_BACKEND_DIR, "docs")
 DATASET_PATH = os.path.join(_BACKEND_DIR, "test_data", "test_dataset.json")
 OUTPUT_DIR   = os.path.join(_EVAL_DIR, "output")
 
@@ -90,22 +88,13 @@ def _ragas_embeddings():
 
 
 # ── Ingestion ─────────────────────────────────────────────────────────────────
-def ensure_ingested(samples: list[dict], force: bool = False):
-    seen = set()
-    for s in samples:
-        col = s["collection"]
-        if col in seen:
-            continue
-        seen.add(col)
-        if not force and collection_exists(col):
-            print(f"  [skip] '{col}' already ingested")
-            continue
-        filepath = os.path.join(DOCS_DIR, s["doc_file"])
-        if not os.path.exists(filepath):
-            print(f"  [ERROR] doc not found: {filepath}")
-            sys.exit(1)
-        n = ingest(filepath, col)
-        print(f"  [ok] '{s['doc_file']}' -> {n} chunks into '{col}'")
+def ensure_ingested(force: bool = False):
+    if not force and collection_exists(EVAL_COLLECTION):
+        print(f"  [skip] '{EVAL_COLLECTION}' already ingested")
+        return
+    counts = ingest_all(EVAL_COLLECTION)
+    for fname, n in counts.items():
+        print(f"  [ok] '{fname}' -> {n} chunks into '{EVAL_COLLECTION}'")
 
 
 # ── RAG pipeline ──────────────────────────────────────────────────────────────
@@ -336,7 +325,7 @@ def main():
     print(f"  {len(samples)} samples loaded")
 
     print("\n--- Step 1: Ingesting documents -----------------------------------")
-    ensure_ingested(samples, force=args.ingest)
+    ensure_ingested(force=args.ingest)
 
     print("\n--- Step 2: Running RAG pipeline ----------------------------------")
     rows = run_pipeline(samples)
