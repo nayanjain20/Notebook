@@ -305,12 +305,14 @@ def advanced_search(query: str, top_n: int = 5, history: list = None, session_id
         logger.info(f"[RAG] Step 2 [{label}] semantic={len(semantic)}, keyword={len(keyword)}, after RRF={len(fused)}")
         per_query_results.append(fused)
 
-    # Step 3 — Cross-query RRF
-    merged = _rrf(per_query_results)
+    # Step 3 — Cross-query RRF (original query gets 2× weight: its exact keywords
+    # may be dropped by LLM variations, so rare BM25 signals must not get diluted)
+    cross_weights = [2.0] + [1.0] * len(variations)
+    merged = _rrf(per_query_results, weights=cross_weights)
     logger.info(f"[RAG] Step 3 — Cross-query RRF: {len(merged)} unique candidates")
 
-    # Step 4 — Rerank top 20, return top_n
-    candidates = merged[:20]
+    # Step 4 — Rerank top 30, return top_n
+    candidates = merged[:30]
     logger.info(f"[RAG] Step 4 — Sending top {len(candidates)} candidates to reranker")
     try:
         results = _rerank(query, candidates, top_n=top_n)
