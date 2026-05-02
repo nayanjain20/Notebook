@@ -264,8 +264,11 @@ def save_outputs(rows: list[dict], ragas_result, dataset_path: str) -> str:
                 "remarks":    _remarks(key, score),
             })
         results.append({
-            "id":          row["id"],
-            "question":    row["question"],
+            "id":           row["id"],
+            "question":     row["question"],
+            "answer":       row["answer"],
+            "ground_truth": row["ground_truth"],
+            "contexts":     row["contexts"],
             "rule_results": rule_results,
         })
 
