@@ -14,6 +14,8 @@ import db
 
 load_dotenv()
 
+EVALS_MODE = os.getenv("EVALS_MODE", "false").lower() == "true"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
@@ -155,6 +157,9 @@ def get_response():
                     "chunk_id": meta["chunk_id"],
                 })
         structured["sources"] = unique_sources
+
+        if EVALS_MODE and retrieved_chunks:
+            structured["contexts"] = [c["text"] for c in retrieved_chunks]
 
         if session_id:
             db.save_message(

@@ -24,7 +24,8 @@ _client = AzureOpenAI(
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
 )
 
-_chroma = chromadb.PersistentClient(path="chroma_db")
+_CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", os.path.join(os.path.dirname(__file__), "chroma_db"))
+_chroma = chromadb.PersistentClient(path=_CHROMA_DB_PATH)
 _collection = _chroma.get_or_create_collection("documents")
 
 # Per-session BM25 indexes — rebuilt on every upload/delete for that session.

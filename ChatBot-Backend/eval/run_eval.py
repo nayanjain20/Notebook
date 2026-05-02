@@ -103,7 +103,7 @@ def run_pipeline(samples: list[dict]) -> list[dict]:
     for i, s in enumerate(samples, 1):
         q = s["question"]
         print(f"  [{i}/{len(samples)}] {q}")
-        contexts = retrieve(q, s["collection"], top_k=5)
+        contexts = retrieve(q, top_k=5)
         answer   = generate(q, contexts)
         rows.append({
             "id":                 i,
