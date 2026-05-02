@@ -6,6 +6,7 @@ openai
 chromadb
 unstructured[pdf]
 rank-bm25
+sentence-transformers
 python-magic-bin
 
 # eval dependencies

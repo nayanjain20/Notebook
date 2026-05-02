@@ -1,8 +1,8 @@
 import os
 import json
 import logging
-import requests
 from openai import AzureOpenAI
+from sentence_transformers import CrossEncoder
 from dotenv import load_dotenv
 import chromadb
 from rank_bm25 import BM25Okapi
@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
 CHAT_DEPLOYMENT = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
-COHERE_RERANK_ENDPOINT = os.getenv("AZURE_COHERE_RERANK_ENDPOINT")
-COHERE_API_KEY = os.getenv("AZURE_COHERE_API_KEY")
+
+_cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 _client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
@@ -255,25 +255,16 @@ def _generate_query_variations(query: str, history: list = None, n: int = 5) -> 
 # ─── Reranking ────────────────────────────────────────────────────────────────
 
 def _rerank(query: str, chunks: list, top_n: int = 5) -> list:
-    """Rerank candidates against the original query using Azure Cohere Rerank."""
+    """Rerank candidates using the local cross-encoder (no API quota)."""
     if not chunks:
         return []
-    response = requests.post(
-        COHERE_RERANK_ENDPOINT,
-        headers={"api-key": COHERE_API_KEY, "Content-Type": "application/json"},
-        json={
-            "model": "Cohere-rerank-v4.0-fast",
-            "query": query,
-            "documents": [c["text"] for c in chunks],
-            "top_n": min(top_n, len(chunks)),
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-    reranked = [chunks[r["index"]] for r in response.json()["results"]]
+    pairs = [(query, c["text"]) for c in chunks]
+    scores = _cross_encoder.predict(pairs)
+    ranked = sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)
+    reranked = [c for _, c in ranked[:top_n]]
     logger.info(f"[Rerank] {len(chunks)} candidates → top {len(reranked)} returned")
-    for i, (chunk, r) in enumerate(zip(reranked, response.json()["results"]), 1):
-        logger.info(f"  #{i} score={r['relevance_score']:.4f}  {chunk['metadata']['filename']} p.{chunk['metadata']['page']}")
+    for i, (score, chunk) in enumerate(ranked[:top_n], 1):
+        logger.info(f"  #{i} score={score:.4f}  {chunk['metadata']['filename']} p.{chunk['metadata']['page']}")
     return reranked
 
 
