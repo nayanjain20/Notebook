@@ -1,0 +1,314 @@
+{
+  "run_date": "2026-05-02T10:58:25Z",
+  "run_number": 2,
+  "dataset": "test_data/test_dataset.json",
+  "total_samples": 10,
+  "aggregate_scores": {
+    "Faithfulness": 0.9,
+    "Answer Relevancy": 0.779911,
+    "Context Precision": 0.594861,
+    "Context Recall": 0.9
+  },
+  "results": [
+    {
+      "id": 1,
+      "question": "When was Google founded?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.0,
+          "remarks": "None of the answer claims could be verified against the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.0,
+          "remarks": "Answer does not adequately address the question asked."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.0,
+          "remarks": "None of the retrieved chunks were ranked as relevant to the question."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "question": "Who founded Google?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.0,
+          "remarks": "Answer does not adequately address the question asked."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.5,
+          "remarks": "Mixed retrieval — roughly half the chunks were relevant. Some irrelevant chunks ranked above useful ones."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "question": "What is Google's parent company?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.964865,
+          "remarks": "Answer directly and completely addresses the question."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.8875,
+          "remarks": "Most retrieved chunks were relevant, with some noise in the top results."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "question": "Who is the CEO of Google?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 1.0,
+          "remarks": "Answer directly and completely addresses the question."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 0.0,
+          "remarks": "The retrieved context did not contain the information needed to answer this question."
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "question": "What percentage of Google's publicly listed shares do its founders own?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.834248,
+          "remarks": "Answer is mostly relevant but may include slightly tangential detail."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.25,
+          "remarks": "Low precision. Most retrieved chunks were not directly relevant to the question."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "question": "When was Microsoft founded?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 1.0,
+          "remarks": "Answer directly and completely addresses the question."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.333333,
+          "remarks": "Low precision. Most retrieved chunks were not directly relevant to the question."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "question": "Who founded Microsoft?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 1.0,
+          "remarks": "Answer directly and completely addresses the question."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.533333,
+          "remarks": "Mixed retrieval — roughly half the chunks were relevant. Some irrelevant chunks ranked above useful ones."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "question": "Where is Microsoft headquartered?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 1.0,
+          "remarks": "Answer directly and completely addresses the question."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.638889,
+          "remarks": "Mixed retrieval — roughly half the chunks were relevant. Some irrelevant chunks ranked above useful ones."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "question": "Who is the CEO of Microsoft?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 1.0,
+          "remarks": "Answer directly and completely addresses the question."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "question": "How much did Microsoft pay to acquire Activision Blizzard?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 1.0,
+          "remarks": "Answer directly and completely addresses the question."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.805556,
+          "remarks": "Most retrieved chunks were relevant, with some noise in the top results."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    }
+  ]
+}

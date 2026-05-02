@@ -1,0 +1,62 @@
+[
+  {
+    "question": "When was Google founded?",
+    "ground_truth": "Google was founded on September 4, 1998.",
+    "doc_file": "Google.txt",
+    "collection": "eval_google"
+  },
+  {
+    "question": "Who founded Google?",
+    "ground_truth": "Google was founded by Larry Page and Sergey Brin.",
+    "doc_file": "Google.txt",
+    "collection": "eval_google"
+  },
+  {
+    "question": "What is Google's parent company?",
+    "ground_truth": "Google's parent company is Alphabet Inc.",
+    "doc_file": "Google.txt",
+    "collection": "eval_google"
+  },
+  {
+    "question": "Who is the CEO of Google?",
+    "ground_truth": "Sundar Pichai is the CEO of Google, appointed on October 24, 2015.",
+    "doc_file": "Google.txt",
+    "collection": "eval_google"
+  },
+  {
+    "question": "What percentage of Google's publicly listed shares do its founders own?",
+    "ground_truth": "Larry Page and Sergey Brin together own about 14% of Google's publicly listed shares.",
+    "doc_file": "Google.txt",
+    "collection": "eval_google"
+  },
+  {
+    "question": "When was Microsoft founded?",
+    "ground_truth": "Microsoft was founded on April 4, 1975.",
+    "doc_file": "Microsoft.txt",
+    "collection": "eval_microsoft"
+  },
+  {
+    "question": "Who founded Microsoft?",
+    "ground_truth": "Microsoft was founded by Bill Gates and Paul Allen.",
+    "doc_file": "Microsoft.txt",
+    "collection": "eval_microsoft"
+  },
+  {
+    "question": "Where is Microsoft headquartered?",
+    "ground_truth": "Microsoft is headquartered in Redmond, Washington.",
+    "doc_file": "Microsoft.txt",
+    "collection": "eval_microsoft"
+  },
+  {
+    "question": "Who is the CEO of Microsoft?",
+    "ground_truth": "Satya Nadella is the CEO of Microsoft.",
+    "doc_file": "Microsoft.txt",
+    "collection": "eval_microsoft"
+  },
+  {
+    "question": "How much did Microsoft pay to acquire Activision Blizzard?",
+    "ground_truth": "Microsoft acquired Activision Blizzard for $68.7 billion in 2023.",
+    "doc_file": "Microsoft.txt",
+    "collection": "eval_microsoft"
+  }
+]
