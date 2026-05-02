@@ -7,3 +7,7 @@ chromadb
 unstructured[pdf]
 rank-bm25
 python-magic-bin
+
+# eval dependencies
+ragas>=0.2
+langchain-openai

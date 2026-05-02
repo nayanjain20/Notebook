@@ -8,6 +8,16 @@ ChatBot-Backend/chroma_db/
 ChatBot-Backend/sessions.db
 .claude/
 
+# Runtime data (generated at runtime, not committed)
+ChatBot-Backend/chroma_db/
+ChatBot-Backend/eval_chroma_db/
+ChatBot-Backend/sessions.db
+ChatBot-Backend/docs/*
+!ChatBot-Backend/docs/.gitkeep
+ChatBot-Backend/eval/output/*
+!ChatBot-Backend/eval/output/.gitkeep
+ChatBot-Backend/eval/results/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
