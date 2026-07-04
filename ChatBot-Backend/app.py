@@ -1,18 +1,21 @@
 import os
 import json
 import logging
+from urllib.parse import urlparse
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
 from ingestion import (
-    extract_and_chunk, embed_and_store, advanced_search,
-    list_documents, delete_document, delete_session_documents,
+    extract_and_chunk, extract_and_chunk_url, embed_and_store, advanced_search,
+    list_documents, delete_document, delete_session_documents, source_name_for_url,
 )
 import db
 
 load_dotenv()
+
+EVALS_MODE = os.getenv("EVALS_MODE", "false").lower() == "true"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,7 +44,7 @@ ANSWER_TOOL = {
     "type": "function",
     "function": {
         "name": "provide_answer",
-        "description": "Provide a structured answer to the user's question",
+        "description": "Provide a structured, helpful answer as a study assistant",
         "parameters": {
             "type": "object",
             "properties": {
@@ -57,6 +60,32 @@ ANSWER_TOOL = {
                     "type": "array",
                     "items": {"type": "integer"},
                     "description": "1-based indices of the context sources you actually used. Leave empty if answering from general knowledge."
+                },
+                "follow_ups": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "0-3 short, specific next questions or actions the user might want next, "
+                        "phrased as the user would ask them (e.g. 'Explain how Kafka partitions work'). "
+                        "Include ONLY when they genuinely add value and move learning forward. "
+                        "Leave empty for simple factual replies or when nothing useful follows."
+                    )
+                },
+                "suggested_links": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "description": "A real, well-known http(s) URL the user could add as a source"},
+                            "title": {"type": "string", "description": "Short label describing the link"}
+                        },
+                        "required": ["url", "title"]
+                    },
+                    "description": (
+                        "0-4 authoritative documentation/reference URLs that would deepen understanding of the "
+                        "topic and that the user can add as new sources. Only suggest URLs you are confident are "
+                        "real and canonical (e.g. official docs). If unsure, return an empty list — never invent URLs."
+                    )
                 }
             },
             "required": ["answer", "confidence", "source_indices"]
@@ -67,6 +96,20 @@ ANSWER_TOOL = {
 @app.route('/')
 def index():
     return jsonify({"message": "Hello from GemBot Flask API!"})
+
+# ─── Assistant persona ────────────────────────────────────────────────────────
+
+AGENT_PERSONA = (
+    "You are Notebook, a focused study assistant that helps the user understand a topic using their "
+    "sources (uploaded documents and web links). Be concise but substantive, and write with clear "
+    "structure — short paragraphs, bullet lists, and headings when they aid understanding.\n"
+    "Critically: do NOT repeat what you already said earlier in this conversation. Each turn should add "
+    "something new — a deeper detail, a concrete example, a distinction, or a next angle. If the user asks "
+    "something broad you've partly covered, advance the explanation instead of restating it.\n"
+    "When (and only when) it genuinely helps the user learn, use 'follow_ups' to offer 1-3 specific next "
+    "questions/actions, and use 'suggested_links' to recommend authoritative pages the user could add as "
+    "sources. Omit them for trivial replies. Never invent URLs — only suggest links you are confident are real."
+)
 
 # ─── Chat ─────────────────────────────────────────────────────────────────────
 
@@ -86,15 +129,19 @@ def get_response():
     app.logger.info(f"[Request] session={session_id}  use_docs={use_docs}  message='{user_message[:80]}'")
 
     history = data.get('history', [])
-    system_prompt = "You are a helpful assistant."
+    system_prompt = AGENT_PERSONA + "\n\nAnswer from your general knowledge."
+
+    grounded_mode = bool(use_docs and session_id)
+    NOT_FOUND_MSG = "I couldn't find anything relevant in your uploaded documents or links to answer that."
+
+    if use_docs and not session_id:
+        app.logger.warning("[Request] use_docs=True but no session_id — skipping RAG")
 
     retrieved_chunks = []
-    if use_docs:
-        if not session_id:
-            app.logger.warning("[Request] use_docs=True but no session_id — skipping RAG")
-        else:
-            retrieved_chunks = advanced_search(user_message, history=history, session_id=session_id)
-            app.logger.info(f"[Request] Retrieved {len(retrieved_chunks)} chunks from advanced_search")
+    if grounded_mode:
+        retrieved_chunks = advanced_search(user_message, history=history, session_id=session_id)
+        app.logger.info(f"[Request] Retrieved {len(retrieved_chunks)} chunks from advanced_search")
+
         if retrieved_chunks:
             def _chunk_header(i, c):
                 meta = c["metadata"]
@@ -104,11 +151,22 @@ def get_response():
                 f"{_chunk_header(i, c)}\n{c['text']}"
                 for i, c in enumerate(retrieved_chunks)
             )
-            system_prompt = (
-                "You are a helpful assistant. Answer using only the numbered context sources below. "
-                "In source_indices, return only the numbers of sources you actually used.\n\n"
-                "Context:\n" + context
-            )
+        else:
+            context = "(no sources were retrieved)"
+
+        system_prompt = (
+            AGENT_PERSONA + "\n\n"
+            "GROUNDING RULES (strict): Answer the user's question using ONLY the numbered context sources "
+            "below. Do NOT use outside or prior knowledge in your ANSWER, and do NOT answer general-knowledge "
+            "questions unless the answer is explicitly present in the context. "
+            f"If the answer is not contained in the context, set 'answer' to exactly: \"{NOT_FOUND_MSG}\" "
+            "and set source_indices to an empty list — but you may still use follow_ups and suggested_links "
+            "to help the user find or add the right sources. When you do answer from the context, list the "
+            "numbers of the sources you actually used in source_indices.\n"
+            "Note: 'suggested_links' are recommendations of new pages to add — they may draw on your general "
+            "knowledge of authoritative sources even though your ANSWER must stay grounded in the context.\n\n"
+            "Context:\n" + context
+        )
 
     openai_messages = [{"role": "system", "content": system_prompt}]
     for msg in history:
@@ -131,7 +189,7 @@ def get_response():
             messages=openai_messages,
             tools=[ANSWER_TOOL],
             tool_choice={"type": "function", "function": {"name": "provide_answer"}},
-            max_completion_tokens=800,
+            max_completion_tokens=1000,
             temperature=0.7,
         )
         tool_call = response.choices[0].message.tool_calls[0]
@@ -139,6 +197,29 @@ def get_response():
         app.logger.info(f"[Request] LLM confidence={structured.get('confidence', '?')}  used_sources={structured.get('source_indices', [])}")
 
         used_indices = structured.pop("source_indices", [])
+
+        # Agentic extras — sanitize follow_ups and suggested_links.
+        follow_ups = [s.strip() for s in (structured.pop("follow_ups", None) or []) if isinstance(s, str) and s.strip()][:3]
+        raw_links = structured.pop("suggested_links", None) or []
+        suggested_links = []
+        seen_urls = set()
+        for link in raw_links:
+            if not isinstance(link, dict):
+                continue
+            url = (link.get("url") or "").strip()
+            title = (link.get("title") or "").strip() or url
+            if url.lower().startswith(("http://", "https://")) and url not in seen_urls:
+                seen_urls.add(url)
+                suggested_links.append({"url": url, "title": title})
+        suggested_links = suggested_links[:4]
+
+        # Don't suggest sources the session already has (avoids bloat / repeats).
+        if session_id:
+            existing_names = set(list_documents(session_id))
+            suggested_links = [
+                l for l in suggested_links if source_name_for_url(l["url"]) not in existing_names
+            ]
+
         seen = set()
         unique_sources = []
         for idx in used_indices:
@@ -155,6 +236,19 @@ def get_response():
                     "chunk_id": meta["chunk_id"],
                 })
         structured["sources"] = unique_sources
+        structured["follow_ups"] = follow_ups
+        structured["suggested_links"] = suggested_links
+
+        # In grounded mode, refuse to answer from general knowledge: if the model
+        # cited no sources, it did not ground its answer in the provided documents.
+        if grounded_mode and not unique_sources:
+            app.logger.info("[Request] Grounded mode with no cited sources — returning not-found message")
+            structured["answer"] = NOT_FOUND_MSG
+            structured["confidence"] = 0.0
+            structured["sources"] = []
+
+        if EVALS_MODE and retrieved_chunks:
+            structured["contexts"] = [c["text"] for c in retrieved_chunks]
 
         if session_id:
             db.save_message(
@@ -162,6 +256,8 @@ def get_response():
                 [{"text": structured["answer"]}],
                 confidence=structured.get("confidence"),
                 sources=unique_sources or None,
+                follow_ups=follow_ups or None,
+                suggested_links=suggested_links or None,
             )
 
         if is_first and session_id:
@@ -266,6 +362,41 @@ def upload_file():
     except Exception as e:
         app.logger.error(f"Ingestion error: {e}")
         return jsonify({"error": "Failed to process document."}), 500
+
+
+@app.route('/api/upload_url', methods=['POST'])
+def upload_url():
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
+    url = (data.get("url") or "").strip()
+    session_id = data.get("session_id")
+
+    if not url:
+        return jsonify({"error": "url is required"}), 400
+    if not session_id:
+        return jsonify({"error": "session_id is required"}), 400
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return jsonify({"error": "Provide a valid http(s) URL."}), 400
+
+    # Dedup: if this URL canonicalizes to an already-added source, skip re-ingesting.
+    name = source_name_for_url(url)
+    if name in list_documents(session_id):
+        app.logger.info(f"[Ingest] URL '{url}' already added as '{name}' — skipping")
+        return jsonify({"status": "exists", "filename": name, "chunks_indexed": 0})
+
+    try:
+        name, chunks = extract_and_chunk_url(url)
+        if not chunks:
+            return jsonify({"error": "No readable content found at that URL."}), 422
+        embed_and_store(chunks, name, session_id)
+        return jsonify({"status": "indexed", "filename": name, "chunks_indexed": len(chunks)})
+    except Exception as e:
+        app.logger.error(f"URL ingestion error: {e}")
+        return jsonify({"error": "Failed to fetch or process that URL."}), 500
 
 
 @app.route('/api/docs', methods=['GET'])

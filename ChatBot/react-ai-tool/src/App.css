@@ -1,4 +1,1 @@
-@import "tailwindcss";
-/* @import "tailwindcss/preflight"; */
-/* @import "tailwindcss/utilities"; */
-@plugin "tailwind-scrollbar";
+/* App-specific styles live in index.css (theme + tokens). */

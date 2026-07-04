@@ -1,0 +1,122 @@
+[
+  {
+    "question": "What role does Android play in Google's product ecosystem?",
+    "ground_truth": "Android is one of Google's operating systems and is part of its extensive product ecosystem. It is used in mobile devices and is a dominant player in the mobile operating system market. Android complements other Google products and services, such as Google Search, Google Play, and YouTube, by providing a platform for their integration and usage.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "Wherre did Larry Page and Sergey Brin start their reserch project that led to Google in the USA?",
+    "ground_truth": "Larry Page and Sergey Brin started their research project that led to Google at Stanford University in California, USA.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "Who was the first employe at Standford-related Google?",
+    "ground_truth": "Craig Silverstein, a fellow PhD student at Stanford, was hired as the first employee.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "Wut is the signifcance of 1600 Amphitheatre Parkway in Google's history?",
+    "ground_truth": "In 2003, Google leased an office complex at 1600 Amphitheatre Parkway in Mountain View, California, from Silicon Graphics. This complex became known as the Googleplex, a play on the word googolplex. Three years later, Google purchased the property from SGI for $319 million.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "What Google do with Waze?",
+    "ground_truth": "In June 2013, Google acquired Waze for $966 million. While Waze remained an independent entity, its social features, such as its crowdsourced location platform, were reportedly valuable integrations between Waze and Google Maps, Google's own mapping service.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "Who is Bill Ready and what role did he take at Google?",
+    "ground_truth": "Bill Ready, the former PayPal chief operating officer, became Google's new commerce chief in December 2019. His role does not directly involve Google Pay.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "What is Gemini in the context of Google's AI developments?",
+    "ground_truth": "Gemini, formerly known as Bard, is a generative artificial intelligence chatbot released by Google in March 2023 as a direct response to the rapid rise of ChatGPT.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "Who is Assaf Rappaport?",
+    "ground_truth": "Assaf Rappaport is the cofounder of Wiz, a New York-based cybersecurity startup focusing on cloud computing. The company was founded in 2020 and is backed by several Silicon Valley venture capitalists. Wiz is also partnered with Amazon and Microsoft, as listed on their website.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "How does ChatGPT compare to Google's AI offerings, such as Gemini and Bard, in terms of generative artificial intelligence capabilities?",
+    "ground_truth": "ChatGPT is a generative artificial intelligence model that has been recognized as a significant competitor in the AI space. Google's AI offerings, such as Bard and Gemini, have been developed to compete in this domain. Prior to Gemini's announcement in March 2024, Google's virtual assistants and chatbots, including Bard, were not considered legitimate competitors to ChatGPT. Gemini, however, marked a shift in Google's approach, aiming to rival ChatGPT's capabilities. Additionally, Google has introduced other AI tools like SynthID Detector for watermarking AI-generated content, Imagen for text-to-image generation, Veo for text-to-video generation, and NotebookLM for document synthesis, showcasing its broad investment in generative AI technologies.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "Wht is teh Pixel brand and how did it replace Nexus?",
+    "ground_truth": "The Pixel brand is Google's line of smartphones that replaced the Nexus branding. Nexus was Google's first Android phone brand, launched in January 2010, and included a series of phones and tablets until its discontinuation in 2016. Pixel was introduced as the new brand to succeed Nexus.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "What was the purpose of the Google Fiber project announced in 2010?",
+    "ground_truth": "The Google Fiber project, announced in February 2010, aimed to build an ultra-high-speed broadband network for 50,000 to 500,000 customers in one or more American cities.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "How has Google’s tax strategy impacted its financial obligations in the UK, and what changes were made to address these concerns?",
+    "ground_truth": "Google employed various tax avoidance strategies, including shuttling non-U.S. profits through Ireland and the Netherlands to Bermuda, which lowered its non-U.S. tax rate to 2.3 percent compared to the UK’s corporate tax rate of 28 percent. This sparked criticism and investigations, including a French inquiry into its transfer pricing practices in 2012. In January 2016, Google reached a settlement with the UK to pay £130 million in back taxes and agreed to pay higher taxes in the future. Additionally, in 2020, Google stated that it had overhauled its global tax structure and consolidated all its intellectual property holdings back to the U.S.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "Who Dennis Hwang?",
+    "ground_truth": "Dennis Hwang was an intern at Google who was asked by Larry Page and Sergey Brin to design a logo for Bastille Day in 2000. From that point onward, Doodles have been organized and created by a team of employees termed \"Doodlers.\"",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "What Alphabet Inc. do with Google employees?",
+    "ground_truth": "As of September 30, 2020, Alphabet Inc. had 132,121 employees, of which more than 100,000 worked for Google. Google's employees are hired based on a hierarchical system, split into six hierarchies based on experience, ranging from entry-level data center workers at level one to managers and experienced engineers at level six. Google also uses a policy known as Innovation Time Off, encouraging engineers to spend 20% of their work time on projects that interest them, which has led to the creation of services like Gmail, Google News, Orkut, and AdSense.",
+    "collection": "eval_docs",
+    "synthesizer": "single_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "What were the reasons behind Microsoft laying off 1,900 employees in its gaming division as reported by NBC News, and how does this fit into the broader context of Microsoft's layoffs and operational changes in recent years?",
+    "ground_truth": "According to NBC News, Microsoft laid off 1,900 employees in its gaming division as part of broader restructuring efforts. This event is part of a larger trend of layoffs and operational changes by Microsoft in recent years. For instance, Microsoft announced layoffs of more than 6,000 employees in 2025, affecting divisions such as Xbox and sales, as reported by The Verge and AP News. Additionally, Microsoft has been investing heavily in AI, which led to further job cuts of up to 9,000 positions, as noted by BBC News. The company also shut down its operations in Pakistan after 25 years, citing strategic reasons, as reported by The Express Tribune and DAWN.COM. These layoffs and operational shifts reflect Microsoft's ongoing efforts to adapt to changing market dynamics and prioritize emerging technologies like AI.",
+    "collection": "eval_docs",
+    "synthesizer": "multi_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "What was special about Windows XP and why Microsoft had to make changes to it?",
+    "ground_truth": "Windows XP, released on October 25, 2001, unified the mainstream and NT lines of operating systems under the NT codebase. However, Microsoft faced antitrust legal action from the European Union in March 2004, which cited that the company abused its dominance with the Windows OS. As a result, Microsoft was required to produce new versions of Windows XP without Windows Media Player, leading to the creation of Windows XP Home Edition N and Windows XP Professional N.",
+    "collection": "eval_docs",
+    "synthesizer": "multi_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "What was the significance of John W. Thompson becoming the chairman of Microsoft in 2014, and how did this transition align with other major changes in the company during that period?",
+    "ground_truth": "John W. Thompson's appointment as chairman of Microsoft on February 4, 2014, marked a significant milestone as he became the first Black chairman in the company's history. This transition occurred on the same day that Satya Nadella succeeded Steve Ballmer as CEO, signaling a major leadership shift within Microsoft. Thompson's role as chairman replaced Bill Gates, who continued to serve as a technology advisor. This leadership change coincided with other transformative events for Microsoft, such as the acquisition of Nokia Devices and Services for $7.2 billion in April 2014 and the purchase of Mojang, the developer of Minecraft, for $2.5 billion in September 2014. These developments highlighted a period of strategic realignment and innovation under the new leadership.",
+    "collection": "eval_docs",
+    "synthesizer": "multi_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "What were the reasons behind the European Commission imposing multiple fines on Google, and how did Google respond to these penalties?",
+    "ground_truth": "The European Commission imposed multiple fines on Google for violating EU antitrust rules. In 2018, Google was fined €4.125 billion for forcing Android phone-makers to carry Google's search and web browser apps, which restricted competition. In 2019, a €1.49 billion fine was imposed for preventing rivals from competing fairly in the online advertising market by imposing anti-competitive contractual restrictions on third-party websites. Additionally, in 2024, a €2.4 billion fine was levied for abusing its dominance in the shopping comparison market. Google responded to these penalties by appealing the fines to the General Court of the European Union. While some appeals were unsuccessful, such as the €4.125 billion fine in 2022, Google won the appeal against the €1.49 billion fine in 2024, as the court found that the European Commission had not sufficiently demonstrated harm to innovation or consumers. Google also noted that it had already changed its contract practices in 2016.",
+    "collection": "eval_docs",
+    "synthesizer": "multi_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "How has Microsoft's involvement in AI technology and cloud services influenced its role in geopolitical conflicts, as reported by The Guardian?",
+    "ground_truth": "Microsoft's involvement in AI technology and cloud services has significantly influenced its role in geopolitical conflicts. According to The Guardian, Microsoft supplied AI technology to the Israeli military for use in Gaza, which led to criticism and a boycott by the Palestinian-led BDS movement targeting Microsoft's Xbox. Additionally, The Guardian reported that Israel relies on Microsoft's cloud services for expansive surveillance of Palestinians, handling 'a million calls an hour.' These actions have sparked unrest and raised ethical concerns about Microsoft's role in such conflicts.",
+    "collection": "eval_docs",
+    "synthesizer": "multi_hop_specific_query_synthesizer"
+  },
+  {
+    "question": "How has Apple Inc.'s market influence been reflected in its comparison with other major technology companies like Microsoft and Google?",
+    "ground_truth": "Apple Inc.'s market influence is evident in its position as a leading technology company, often compared with other giants like Microsoft and Google. For instance, in November 2014, Microsoft overtook ExxonMobil to become the second most-valuable company by market capitalization, behind only Apple Inc., with a total market value exceeding $410 billion. Similarly, Google has consistently been ranked as the second most valuable brand in the world, behind Apple Inc., according to Interbrand's annual Best Global Brands report from 2013 to 2016. These comparisons highlight Apple's dominant market presence and its role as a benchmark for evaluating the success and influence of other major technology companies.",
+    "collection": "eval_docs",
+    "synthesizer": "multi_hop_specific_query_synthesizer"
+  }
+]

@@ -1,0 +1,614 @@
+{
+  "run_date": "2026-05-02T15:31:23Z",
+  "run_number": 4,
+  "dataset": "test_data/test_dataset.json",
+  "total_samples": 20,
+  "aggregate_scores": {
+    "Faithfulness": 0.718867,
+    "Answer Relevancy": 0.606785,
+    "Context Precision": 0.764912,
+    "Context Recall": 0.873333
+  },
+  "results": [
+    {
+      "id": 1,
+      "question": "What role does Android play in Google's product ecosystem?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.6,
+          "remarks": "About half the claims are grounded in context. Several statements go beyond what the retrieved chunks support."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 1.0,
+          "remarks": "Answer directly and completely addresses the question."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 0.333333,
+          "remarks": "Very little of the needed information was retrieved."
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "question": "Wherre did Larry Page and Sergey Brin start their reserch project that led to Google in the USA?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.903272,
+          "remarks": "Answer is mostly relevant but may include slightly tangential detail."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": null,
+          "remarks": "Score could not be computed for this sample."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "question": "Who was the first employe at Standford-related Google?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.0,
+          "remarks": "None of the answer claims could be verified against the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.947327,
+          "remarks": "Answer is mostly relevant but may include slightly tangential detail."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.833333,
+          "remarks": "Most retrieved chunks were relevant, with some noise in the top results."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "question": "Wut is the signifcance of 1600 Amphitheatre Parkway in Google's history?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.979317,
+          "remarks": "Answer directly and completely addresses the question."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "question": "What Google do with Waze?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.754783,
+          "remarks": "Answer partially addresses the question. Some key aspects are missing or unrelated content is present."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.583333,
+          "remarks": "Mixed retrieval — roughly half the chunks were relevant. Some irrelevant chunks ranked above useful ones."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "question": "Who is Bill Ready and what role did he take at Google?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.811209,
+          "remarks": "Answer is mostly relevant but may include slightly tangential detail."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.7,
+          "remarks": "Most retrieved chunks were relevant, with some noise in the top results."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "question": "What is Gemini in the context of Google's AI developments?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.857143,
+          "remarks": "Most claims are grounded in context. A small number of statements could not be verified against the retrieved chunks."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.614968,
+          "remarks": "Answer partially addresses the question. Some key aspects are missing or unrelated content is present."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "question": "Who is Assaf Rappaport?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.75735,
+          "remarks": "Answer partially addresses the question. Some key aspects are missing or unrelated content is present."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "question": "How does ChatGPT compare to Google's AI offerings, such as Gemini and Bard, in terms of generative artificial intelligence capabilities?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.0,
+          "remarks": "None of the answer claims could be verified against the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.0,
+          "remarks": "Answer does not adequately address the question asked."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "question": "Wht is teh Pixel brand and how did it replace Nexus?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.75,
+          "remarks": "About half the claims are grounded in context. Several statements go beyond what the retrieved chunks support."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.938639,
+          "remarks": "Answer is mostly relevant but may include slightly tangential detail."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.5,
+          "remarks": "Mixed retrieval — roughly half the chunks were relevant. Some irrelevant chunks ranked above useful ones."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "question": "What was the purpose of the Google Fiber project announced in 2010?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 1.0,
+          "remarks": "Answer directly and completely addresses the question."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "question": "How has Google’s tax strategy impacted its financial obligations in the UK, and what changes were made to address these concerns?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.777778,
+          "remarks": "About half the claims are grounded in context. Several statements go beyond what the retrieved chunks support."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.883751,
+          "remarks": "Answer is mostly relevant but may include slightly tangential detail."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "question": "Who Dennis Hwang?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.0,
+          "remarks": "Answer does not adequately address the question asked."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.0,
+          "remarks": "None of the retrieved chunks were ranked as relevant to the question."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 0.0,
+          "remarks": "The retrieved context did not contain the information needed to answer this question."
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "question": "What Alphabet Inc. do with Google employees?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.0,
+          "remarks": "None of the answer claims could be verified against the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.0,
+          "remarks": "Answer does not adequately address the question asked."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.5,
+          "remarks": "Mixed retrieval — roughly half the chunks were relevant. Some irrelevant chunks ranked above useful ones."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "question": "What were the reasons behind Microsoft laying off 1,900 employees in its gaming division as reported by NBC News, and how does this fit into the broader context of Microsoft's layoffs and operational changes in recent years?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 1.0,
+          "remarks": "All claims in the answer are fully supported by the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.0,
+          "remarks": "Answer does not adequately address the question asked."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 0.833333,
+          "remarks": "Most of the necessary information was retrieved. Some supporting details may have been missed."
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "question": "What was special about Windows XP and why Microsoft had to make changes to it?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.833333,
+          "remarks": "Most claims are grounded in context. A small number of statements could not be verified against the retrieved chunks."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.746675,
+          "remarks": "Answer partially addresses the question. Some key aspects are missing or unrelated content is present."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.5,
+          "remarks": "Mixed retrieval — roughly half the chunks were relevant. Some irrelevant chunks ranked above useful ones."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "question": "What was the significance of John W. Thompson becoming the chairman of Microsoft in 2014, and how did this transition align with other major changes in the company during that period?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.75,
+          "remarks": "About half the claims are grounded in context. Several statements go beyond what the retrieved chunks support."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.903057,
+          "remarks": "Answer is mostly relevant but may include slightly tangential detail."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.75,
+          "remarks": "Most retrieved chunks were relevant, with some noise in the top results."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 0.8,
+          "remarks": "Most of the necessary information was retrieved. Some supporting details may have been missed."
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "question": "What were the reasons behind the European Commission imposing multiple fines on Google, and how did Google respond to these penalties?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.9,
+          "remarks": "Most claims are grounded in context. A small number of statements could not be verified against the retrieved chunks."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.895346,
+          "remarks": "Answer is mostly relevant but may include slightly tangential detail."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.833333,
+          "remarks": "Most retrieved chunks were relevant, with some noise in the top results."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "question": "How has Microsoft's involvement in AI technology and cloud services influenced its role in geopolitical conflicts, as reported by The Guardian?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.0,
+          "remarks": "None of the answer claims could be verified against the retrieved context."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.0,
+          "remarks": "Answer does not adequately address the question asked."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 1.0,
+          "remarks": "Retrieved chunks are highly relevant; almost all context was useful for answering."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 0.5,
+          "remarks": "Only part of the necessary information was retrieved. Key facts from the ground truth are missing."
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "question": "How has Apple Inc.'s market influence been reflected in its comparison with other major technology companies like Microsoft and Google?",
+      "rule_results": [
+        {
+          "rule": "Faithfulness",
+          "metric_key": "faithfulness",
+          "score": 0.909091,
+          "remarks": "Most claims are grounded in context. A small number of statements could not be verified against the retrieved chunks."
+        },
+        {
+          "rule": "Answer Relevancy",
+          "metric_key": "answer_relevancy",
+          "score": 0.0,
+          "remarks": "Answer does not adequately address the question asked."
+        },
+        {
+          "rule": "Context Precision",
+          "metric_key": "llm_context_precision_with_reference",
+          "score": 0.333333,
+          "remarks": "Low precision. Most retrieved chunks were not directly relevant to the question."
+        },
+        {
+          "rule": "Context Recall",
+          "metric_key": "context_recall",
+          "score": 1.0,
+          "remarks": "All information needed to answer the question was present in the retrieved context."
+        }
+      ]
+    }
+  ]
+}

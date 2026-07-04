@@ -1,9 +1,9 @@
 import React from "react";
 import "./App.css";
 import ChatPannel from "./components/ChatPannel";
-import { LoaderSpinner } from "./components/LoaderSpinner";
 import ChatHeader from "./components/ChatHeader";
 import FileUpload from "./components/FileUpload";
+import AddSourceMenu from "./components/AddSourceMenu";
 import SessionList, { type ISession, type SessionListRef } from "./components/SessionList";
 import { ArrowUp } from "lucide-react";
 import { useChat } from "./hooks/useChat";
@@ -19,6 +19,8 @@ export interface IChatMessage {
   parts: ChatPart[];
   confidence?: number;
   sources?: { filename: string; page: string; chunk_id: number }[];
+  follow_ups?: string[];
+  suggested_links?: { url: string; title: string }[];
 }
 
 export const RoleEnum = {
@@ -37,13 +39,28 @@ export type IChatTypes = keyof typeof ChatTypeEnum;
 
 function App() {
   const [inputText, setInputText] = React.useState<string>("");
-  const [useDocs, setUseDocs] = React.useState(false);
+  const [useDocs, setUseDocs] = React.useState(true);
   const [hasDocs, setHasDocs] = React.useState(false);
+  const [docsRefresh, setDocsRefresh] = React.useState(0);
+  const [sidebarOpen, setSidebarOpen] = React.useState(false);
+  // Draft mode: user can compose before any backend session exists.
+  const [isDrafting, setIsDrafting] = React.useState(true);
   const [activeSession, setActiveSession] = React.useState<ISession | null>(null);
   const scrollToAns = React.useRef<any>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const sessionListRef = React.useRef<SessionListRef>(null);
-  const { messages, isLoading, sendMessage, latestTitle } = useChat(useDocs, activeSession?.id ?? null);
+
+  const handleSessionCreated = React.useCallback((session: ISession) => {
+    setIsDrafting(false);
+    setActiveSession(session);
+    sessionListRef.current?.addSession(session);
+  }, []);
+
+  const { messages, isLoading, sendMessage, latestTitle, ensureSession } = useChat(
+    useDocs && hasDocs,
+    activeSession?.id ?? null,
+    handleSessionCreated
+  );
 
   React.useEffect(() => {
     if (!isLoading) inputRef.current?.focus();
@@ -53,7 +70,7 @@ function App() {
     if (scrollToAns.current) {
       scrollToAns.current.scrollTop = scrollToAns.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, isLoading]);
 
   React.useEffect(() => { setHasDocs(false); }, [activeSession?.id]);
 
@@ -66,6 +83,7 @@ function App() {
   }, [latestTitle]);
 
   const onPrompt = async (text: string) => {
+    if (!text.trim()) return;
     await sendMessage(text);
     setInputText("");
   };
@@ -77,81 +95,115 @@ function App() {
     }
   };
 
+  const handleSelectSession = (session: ISession) => {
+    setIsDrafting(false);
+    setActiveSession(session);
+  };
+
+  const handleNewChat = () => {
+    setActiveSession(null);
+    setIsDrafting(true);
+    setInputText("");
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
   const handleSessionDelete = (deletedId: string) => {
-    if (activeSession?.id === deletedId) setActiveSession(null);
+    if (activeSession?.id === deletedId) {
+      setActiveSession(null);
+      setIsDrafting(true);
+    }
   };
 
   const noSessionSelected = !activeSession;
+  const canCompose = !!activeSession || isDrafting;
 
   return (
-    <div className="dark scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-zinc-900 h-screen flex bg-zinc-900">
+    <div className="scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent h-screen flex bg-background text-foreground">
       {/* Sidebar */}
-      <div className="w-60 shrink-0 flex flex-col border-r border-zinc-700 overflow-hidden">
+      <div
+        className={`shrink-0 flex flex-col border-r border-sidebar-border bg-sidebar overflow-hidden transition-all duration-200
+          ${sidebarOpen ? "w-64" : "w-0 border-r-0"}`}
+      >
         {/* Sessions — takes remaining space */}
         <SessionList
           ref={sessionListRef}
           activeSessionId={activeSession?.id ?? null}
-          onSelect={setActiveSession}
-          onCreate={setActiveSession}
+          onSelect={handleSelectSession}
+          onNewChat={handleNewChat}
           onDelete={handleSessionDelete}
         />
 
-        {/* Documents — pinned at bottom */}
-        <div className="border-t border-zinc-700">
-          <div className="px-3 py-2 border-b border-zinc-700">
-            <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Documents</span>
+        {/* Sources — pinned at bottom (read-only list; add via + near input) */}
+        <div className="border-t border-sidebar-border">
+          <div className="px-4 py-2.5">
+            <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Sources</span>
           </div>
-          <FileUpload onDocsChange={setHasDocs} sessionId={activeSession?.id ?? null} />
+          <FileUpload onDocsChange={setHasDocs} sessionId={activeSession?.id ?? null} refreshKey={docsRefresh} />
         </div>
       </div>
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <LoaderSpinner isLoading={isLoading} />
-        <ChatHeader />
+        <ChatHeader sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((v) => !v)} />
 
         {noSessionSelected ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 gap-2">
-            <span className="text-4xl">💬</span>
-            <p className="text-sm">Select a chat or start a new one</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3 px-6 text-center">
+            <span className="font-serif text-3xl text-foreground/80">Notebook</span>
+            <p className="text-sm">
+              {isDrafting
+                ? "Ask a question, or add a document or link to begin."
+                : "Select a chat or start a new one."}
+            </p>
           </div>
         ) : (
-          <ChatPannel chatMessages={messages} scrollToAns={scrollToAns} />
+          <ChatPannel
+            chatMessages={messages}
+            scrollToAns={scrollToAns}
+            sessionId={activeSession?.id ?? null}
+            onSourceAdded={() => setDocsRefresh((v) => v + 1)}
+            onFollowUp={(t) => onPrompt(t)}
+            isLoading={isLoading}
+            useDocs={useDocs && hasDocs}
+          />
         )}
 
-        <div className="shrink-0 flex flex-col items-center gap-2 py-3">
+        <div className="shrink-0 flex flex-col items-center gap-2.5 py-4">
           {/* Toggle */}
-          <label className={`flex items-center gap-2 text-xs select-none ${hasDocs ? "cursor-pointer text-zinc-300" : "cursor-not-allowed text-zinc-600"}`}>
+          <label className={`flex items-center gap-2 text-xs select-none ${hasDocs ? "cursor-pointer text-foreground" : "cursor-not-allowed text-muted-foreground/60"}`}>
             <div
               onClick={() => hasDocs && setUseDocs((v) => !v)}
-              className={`relative w-8 h-4 rounded-full transition-colors ${useDocs && hasDocs ? "bg-violet-600" : "bg-zinc-600"}`}
+              className={`relative w-8 h-4 rounded-full transition-colors ${useDocs && hasDocs ? "bg-primary" : "bg-border"}`}
             >
-              <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${useDocs && hasDocs ? "translate-x-4" : ""}`} />
+              <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-card shadow-sm transition-transform ${useDocs && hasDocs ? "translate-x-4" : ""}`} />
             </div>
-            Search uploaded docs
+              Answer from sources
           </label>
 
           {/* Input */}
           <div
-            className={`bg-zinc-800 w-1/2 text-white rounded-4xl border flex items-center p-2 h-14 cursor-text transition-colors
-              ${noSessionSelected ? "border-zinc-700 opacity-50 pointer-events-none" : "border-zinc-400"}`}
-            onClick={() => inputRef.current?.focus()}
+            className={`bg-card w-[min(42rem,90%)] text-foreground rounded-2xl border flex items-center gap-1 p-2 h-14 transition-colors shadow-sm
+              ${canCompose ? "border-border focus-within:border-ring" : "border-border opacity-50"}`}
           >
+            <AddSourceMenu
+              ensureSession={ensureSession}
+              onSourceAdded={() => setDocsRefresh((v) => v + 1)}
+              disabled={!canCompose}
+            />
             <input
               ref={inputRef}
               autoFocus
               type="text"
-              placeholder={noSessionSelected ? "Select a chat to start" : "Ask me anything"}
-              className="w-full h-full p-3 outline-none bg-transparent"
+              placeholder={canCompose ? "Ask anything, or add a source…" : "Start a new chat to begin"}
+              className="w-full h-full outline-none bg-transparent placeholder:text-muted-foreground disabled:cursor-not-allowed"
               value={inputText}
               onKeyDown={onKeyDownQuestion}
               onChange={(e) => setInputText(e.target.value)}
-              disabled={isLoading || noSessionSelected}
+              disabled={isLoading || !canCompose}
             />
             <button
               onClick={() => onPrompt(inputText)}
-              disabled={isLoading || noSessionSelected}
-              className="p-2 rounded-full bg-zinc-700 hover:bg-zinc-600 text-white shrink-0 disabled:opacity-40"
+              disabled={isLoading || !canCompose || !inputText.trim()}
+              className="p-2 rounded-full bg-primary text-primary-foreground hover:opacity-90 shrink-0 disabled:opacity-40 transition-opacity"
             >
               <ArrowUp className="w-5 h-5" />
             </button>
