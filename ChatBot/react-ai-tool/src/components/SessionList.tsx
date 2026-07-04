@@ -12,12 +12,13 @@ export interface ISession {
 interface SessionListProps {
   activeSessionId: string | null;
   onSelect: (session: ISession) => void;
-  onCreate: (session: ISession) => void;
+  onNewChat: () => void;
   onDelete: (sessionId: string) => void;
 }
 
 export interface SessionListRef {
   updateTitle: (sessionId: string, title: string) => void;
+  addSession: (session: ISession) => void;
 }
 
 function relativeTime(iso: string): string {
@@ -31,7 +32,7 @@ function relativeTime(iso: string): string {
 }
 
 const SessionList = React.forwardRef<SessionListRef, SessionListProps>(
-  ({ activeSessionId, onSelect, onCreate, onDelete }, ref) => {
+  ({ activeSessionId, onSelect, onNewChat, onDelete }, ref) => {
     const [sessions, setSessions] = React.useState<ISession[]>([]);
 
     React.useEffect(() => {
@@ -47,16 +48,12 @@ const SessionList = React.forwardRef<SessionListRef, SessionListProps>(
           prev.map((s) => (s.id === sessionId ? { ...s, title } : s))
         );
       },
+      addSession: (session: ISession) => {
+        setSessions((prev) =>
+          prev.some((s) => s.id === session.id) ? prev : [session, ...prev]
+        );
+      },
     }));
-
-    const handleCreate = async () => {
-      try {
-        const res = await fetch(`${BASE_URL}/api/sessions`, { method: "POST" });
-        const session: ISession = await res.json();
-        setSessions((prev) => [session, ...prev]);
-        onCreate(session);
-      } catch {}
-    };
 
     const handleDelete = async (e: React.MouseEvent, sessionId: string) => {
       e.stopPropagation();
@@ -70,40 +67,40 @@ const SessionList = React.forwardRef<SessionListRef, SessionListProps>(
     return (
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-700">
-          <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wide">Chats</span>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
+          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Chats</span>
           <button
-            onClick={handleCreate}
+            onClick={onNewChat}
             title="New chat"
-            className="p-1 rounded hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="p-1 rounded-md hover:bg-sidebar-accent text-muted-foreground hover:text-foreground transition-colors"
           >
-            <MessageSquarePlus size={15} />
+            <MessageSquarePlus size={16} />
           </button>
         </div>
 
         {/* Session list */}
-        <div className="flex-1 overflow-y-auto py-1">
+        <div className="flex-1 overflow-y-auto py-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
           {sessions.length === 0 ? (
-            <p className="text-xs text-zinc-600 text-center mt-6 px-3">No chats yet.<br />Click + to start one.</p>
+            <p className="text-xs text-muted-foreground/70 text-center mt-6 px-3">No chats yet.<br />Click + to start one.</p>
           ) : (
             sessions.map((s) => (
               <button
                 key={s.id}
                 onClick={() => onSelect(s)}
-                className={`w-full text-left flex items-start gap-2 px-3 py-2 group transition-colors
-                  ${activeSessionId === s.id ? "bg-zinc-700 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"}`}
+                className={`w-full text-left flex items-start gap-2 px-3 py-2 mx-0 group transition-colors
+                  ${activeSessionId === s.id ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"}`}
               >
                 <MessageSquare size={13} className="mt-0.5 shrink-0 opacity-60" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs truncate font-medium">{s.title}</p>
-                  <p className="text-[10px] text-zinc-600">{relativeTime(s.updated_at)}</p>
+                  <p className="text-[13px] truncate font-medium" title={s.title}>{s.title}</p>
+                  <p className="text-[10px] text-muted-foreground/70">{relativeTime(s.updated_at)}</p>
                 </div>
                 <button
                   onClick={(e) => handleDelete(e, s.id)}
                   title="Delete chat"
-                  className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-600 hover:text-red-400 transition-opacity shrink-0 mt-0.5"
+                  className="opacity-0 group-hover:opacity-100 p-0.5 text-muted-foreground/70 hover:text-destructive transition-opacity shrink-0 mt-0.5"
                 >
-                  <Trash2 size={11} />
+                  <Trash2 size={12} />
                 </button>
               </button>
             ))

@@ -1,12 +1,15 @@
 import os
 import json
 import logging
+import requests
+from urllib.parse import urlparse
 from openai import AzureOpenAI
 from sentence_transformers import CrossEncoder
 from dotenv import load_dotenv
 import chromadb
 from rank_bm25 import BM25Okapi
 from unstructured.partition.auto import partition
+from unstructured.partition.html import partition_html
 from unstructured.chunking.title import chunk_by_title
 
 load_dotenv()
@@ -81,6 +84,80 @@ def extract_and_chunk(filepath: str, filename: str) -> list:
 
     logger.info(f"[Ingest] '{filename}' → {len(result)} chunks extracted")
     return result
+
+
+def _canonical_path(path: str) -> str:
+    """Collapse equivalent doc URL paths (trailing slash, .html, index.html)."""
+    path = path.rstrip("/")
+    for suffix in ("/index.html", "/index.htm"):
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+    for ext in (".html", ".htm"):
+        if path.endswith(ext):
+            path = path[: -len(ext)]
+    return path
+
+
+def _url_to_name(url: str) -> str:
+    """Derive a slash-free, human-readable source name from a URL.
+
+    URLs are canonicalized first (lowercased host, trailing slash / .html /
+    index.html stripped) so equivalent pages map to the same source name and
+    don't create duplicate entries. Kept free of '/' so it stays compatible
+    with the docs list, citation, and DELETE /api/docs/<filename> flow.
+    """
+    parsed = urlparse(url)
+    netloc = parsed.netloc.lower()
+    path = _canonical_path(parsed.path)
+    base = f"{netloc}{path}".rstrip("/")
+    if not base:
+        base = url
+    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in base)
+    safe = safe.strip("_") or "web_source"
+    return safe[:120]
+
+
+def source_name_for_url(url: str) -> str:
+    """Public helper: canonical source name for a URL (for dedup/filtering)."""
+    return _url_to_name(url)
+
+
+def extract_and_chunk_url(url: str) -> tuple:
+    """Fetch a web page, extract readable text, chunk by section.
+
+    Returns (name, chunks) where name is a slash-free source label used as the
+    'filename' throughout the per-session RAG pipeline.
+
+    The page is fetched with a browser-like User-Agent because many sites
+    (e.g. Wikipedia) reject requests with no/blank User-Agent (HTTP 403).
+    """
+    name = _url_to_name(url)
+    logger.info(f"[Ingest] Fetching URL '{url}' → source '{name}'")
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        )
+    }
+    response = requests.get(url, headers=headers, timeout=30)
+    response.raise_for_status()
+
+    elements = partition_html(text=response.text)
+    chunks = chunk_by_title(elements, max_characters=2000, overlap=200)
+
+    result = []
+    for i, chunk in enumerate(chunks):
+        text = str(chunk).strip()
+        if not text:
+            continue
+        result.append({
+            "text": text,
+            "metadata": {"filename": name, "chunk_id": i, "page": "N/A"},
+        })
+
+    logger.info(f"[Ingest] '{url}' → {len(result)} chunks extracted")
+    return name, result
 
 
 def embed_and_store(chunks: list, filename: str, session_id: str):

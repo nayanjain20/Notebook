@@ -2,13 +2,50 @@ import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatTypeEnum, RoleEnum, type IChatMessage, type IChatTypes, type IRoleTypes } from "../App";
-import { Copy, CopyCheck } from "lucide-react";
+import { Copy, CopyCheck, BookText, ChevronDown, FileText, Link as LinkIcon, Plus, Check, Loader, Sparkles } from "lucide-react";
+
+const BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// Playful, Claude-Code-style status verbs shown while the agent responds.
+const THINKING_VERBS = [
+  "Cooking", "Brewing", "Roasting", "Pondering", "Simmering", "Percolating",
+  "Marinating", "Crunching", "Noodling", "Untangling", "Distilling", "Mulling",
+];
+
+const ThinkingIndicator: React.FC<{ useDocs: boolean }> = ({ useDocs }) => {
+  const [i, setI] = React.useState(() => Math.floor(Math.random() * THINKING_VERBS.length));
+  React.useEffect(() => {
+    const id = setInterval(() => setI((v) => (v + 1) % THINKING_VERBS.length), 1600);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="py-3">
+      <div className="inline-flex items-center gap-2.5 text-sm">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/50" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+        </span>
+        <span className="font-medium text-foreground/90 animate-pulse">{THINKING_VERBS[i]}…</span>
+        <span className="text-muted-foreground">
+          {useDocs ? "reading your sources" : "thinking it through"}
+        </span>
+      </div>
+    </div>
+  );
+};
+
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface IChatPannel {
   chatMessages: IChatMessage[];
   scrollToAns: React.RefObject<HTMLDivElement>;
+  sessionId: string | null;
+  onSourceAdded: () => void;
+  onFollowUp: (text: string) => void;
+  isLoading: boolean;
+  useDocs: boolean;
 }
 
 interface IMessageBody {
@@ -19,6 +56,8 @@ interface IMessageBody {
   imageUrl?: string;
   confidence?: number;
   sources?: { filename: string; page: string; chunk_id: number }[];
+  followUps?: string[];
+  suggestedLinks?: { url: string; title: string }[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -29,7 +68,15 @@ function flattenMessages(chatMessages: IChatMessage[]): IMessageBody[] {
     .flatMap((chat) =>
       chat.parts.map((part): IMessageBody | null => {
         if ("text" in part)
-          return { role: chat.role, type: ChatTypeEnum.Text, text: part.text, confidence: chat.confidence, sources: chat.sources };
+          return {
+            role: chat.role,
+            type: ChatTypeEnum.Text,
+            text: part.text,
+            confidence: chat.confidence,
+            sources: chat.sources,
+            followUps: chat.follow_ups,
+            suggestedLinks: chat.suggested_links,
+          };
         if ("base64Image" in part)
           return { role: chat.role, type: ChatTypeEnum.Image, base64Image: part.base64Image };
         if ("imageUrl" in part)
@@ -84,57 +131,193 @@ const ImageMessage: React.FC<{ msg: IMessageBody }> = ({ msg }) => {
 };
 
 const confidenceColor = (c: number) =>
-  c >= 0.8 ? "text-green-400" : c >= 0.5 ? "text-yellow-400" : "text-red-400";
+  c >= 0.8 ? "text-emerald-600 dark:text-emerald-400" : c >= 0.5 ? "text-amber-600 dark:text-amber-400" : "text-destructive";
+
+/** Follow-up option chips — click to ask that question next. */
+const FollowUps: React.FC<{ items: string[]; onFollowUp: (t: string) => void }> = ({ items, onFollowUp }) => (
+  <div className="mt-3">
+    <span className="text-xs font-medium text-muted-foreground">You might want to</span>
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {items.map((q, i) => (
+        <button
+          key={i}
+          onClick={() => onFollowUp(q)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground hover:bg-accent hover:border-ring transition-colors"
+        >
+          <Sparkles size={12} className="text-muted-foreground" />
+          {q}
+        </button>
+      ))}
+    </div>
+  </div>
+);
+
+/** Curated links the assistant recommends adding as sources (add each / add all). */
+const SuggestedLinks: React.FC<{
+  items: { url: string; title: string }[];
+  sessionId: string | null;
+  onSourceAdded: () => void;
+}> = ({ items, sessionId, onSourceAdded }) => {
+  const [status, setStatus] = React.useState<Record<string, "idle" | "adding" | "done" | "error">>({});
+
+  const addOne = async (url: string) => {
+    if (!sessionId || status[url] === "adding" || status[url] === "done") return;
+    setStatus((s) => ({ ...s, [url]: "adding" }));
+    try {
+      const res = await fetch(`${BASE_URL}/api/upload_url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, session_id: sessionId }),
+      });
+      if (!res.ok) throw new Error();
+      setStatus((s) => ({ ...s, [url]: "done" }));
+      onSourceAdded();
+    } catch {
+      setStatus((s) => ({ ...s, [url]: "error" }));
+    }
+  };
+
+  const addAll = () => items.forEach((it) => addOne(it.url));
+  const remaining = items.filter((it) => status[it.url] !== "done" && status[it.url] !== "adding").length;
+
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-muted/40 p-2.5">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <LinkIcon size={12} /> Suggested sources to add
+        </span>
+        {items.length > 1 && remaining > 0 && (
+          <button
+            onClick={addAll}
+            disabled={!sessionId}
+            className="text-xs font-medium text-foreground hover:underline disabled:opacity-40"
+          >
+            Add all
+          </button>
+        )}
+      </div>
+      <ul className="space-y-1">
+        {items.map(({ url, title }) => {
+          const st = status[url] ?? "idle";
+          return (
+            <li key={url} className="flex items-center gap-2 text-xs">
+              <a
+                href={url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex-1 min-w-0 truncate text-foreground/90 hover:text-foreground underline underline-offset-2 decoration-muted-foreground"
+                title={url}
+              >
+                {title}
+              </a>
+              <button
+                onClick={() => addOne(url)}
+                disabled={!sessionId || st === "adding" || st === "done"}
+                title={st === "done" ? "Added" : st === "error" ? "Failed — retry" : "Add as source"}
+                className={`inline-flex items-center gap-1 shrink-0 rounded-md px-2 py-1 border transition-colors
+                  ${st === "done"
+                    ? "border-emerald-600/40 text-emerald-600 dark:text-emerald-400"
+                    : st === "error"
+                      ? "border-destructive/50 text-destructive hover:bg-destructive/10"
+                      : "border-border text-foreground hover:bg-accent"}`}
+              >
+                {st === "adding" ? <Loader size={11} className="animate-spin" />
+                  : st === "done" ? <Check size={11} />
+                  : <Plus size={11} />}
+                {st === "done" ? "Added" : st === "adding" ? "Adding" : st === "error" ? "Retry" : "Add"}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+};
 
 /** Renders a single chat bubble — user (right-aligned) or model (left-aligned). */
-const MessageBubble: React.FC<{ msg: IMessageBody }> = ({ msg }) => {
+const MessageBubble: React.FC<{
+  msg: IMessageBody;
+  sessionId: string | null;
+  onSourceAdded: () => void;
+  onFollowUp: (t: string) => void;
+}> = ({ msg, sessionId, onSourceAdded, onFollowUp }) => {
   const isUser = msg.role === RoleEnum.User;
+  const [showSources, setShowSources] = React.useState(false);
 
-  const content =
-    msg.type === ChatTypeEnum.Text
-      ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
-      : <ImageMessage msg={msg} />;
+  if (msg.type !== ChatTypeEnum.Text) {
+    return (
+      <div className={`py-1.5 ${isUser ? "flex justify-end" : ""}`}>
+        <ImageMessage msg={msg} />
+      </div>
+    );
+  }
 
   if (isUser) {
     return (
-      <div className="flex justify-end px-4 py-1">
-        <div className="bg-zinc-700 text-white text-base px-4 py-2 rounded-tl-3xl rounded-br-3xl rounded-bl-3xl max-w-[70%]">
-          {content}
+      <div className="flex justify-end py-1.5">
+        <div className="bg-secondary text-secondary-foreground border border-border text-[15px] leading-relaxed px-4 py-2.5 rounded-2xl rounded-br-sm max-w-[85%] whitespace-pre-wrap">
+          {msg.text}
         </div>
       </div>
     );
   }
 
+  // Grounded answers carry citations; only then do we surface confidence/sources.
+  const hasSources = !!(msg.sources && msg.sources.length > 0);
+  const followUps = msg.followUps ?? [];
+  const suggestedLinks = msg.suggestedLinks ?? [];
+
   return (
-    <div className="px-4 py-1">
-      <div className="text-white text-base max-w-[70%]">
-        {content}
-        {msg.confidence !== undefined && (
-          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            <span className={`font-medium ${confidenceColor(msg.confidence)}`}>
-              {Math.round(msg.confidence * 100)}% confident
-            </span>
-            {msg.sources && msg.sources.length > 0 && (
-              <div className="w-full mt-1">
-                <span className="text-zinc-500 text-xs">Sources</span>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  {msg.sources.map((s, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs"
-                    >
-                      <span className="text-zinc-500">📄</span>
-                      <span className="font-medium">{s.filename}</span>
-                      <span className="text-zinc-500">·</span>
-                      <span className="text-zinc-400">
-                        {s.page !== "N/A" ? `p. ${s.page}` : `part ${s.chunk_id + 1}`}
-                      </span>
-                    </span>
-                  ))}
-                </div>
+    <div className="py-2">
+      <div className="w-full">
+        <div className="md">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+        </div>
+
+        {hasSources && (
+          <div className="mt-3">
+            <button
+              onClick={() => setShowSources((v) => !v)}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors rounded-md px-1.5 py-1 -ml-1.5 hover:bg-muted"
+              title="View sources and confidence"
+            >
+              <BookText size={13} />
+              <span>{msg.sources!.length} source{msg.sources!.length > 1 ? "s" : ""}</span>
+              {msg.confidence !== undefined && (
+                <>
+                  <span className="text-border">·</span>
+                  <span className={confidenceColor(msg.confidence)}>
+                    {Math.round(msg.confidence * 100)}%
+                  </span>
+                </>
+              )}
+              <ChevronDown size={12} className={`transition-transform ${showSources ? "rotate-180" : ""}`} />
+            </button>
+
+            {showSources && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {msg.sources!.map((s, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted border border-border text-muted-foreground text-xs"
+                  >
+                    <FileText size={11} className="opacity-70" />
+                    <span className="font-medium text-foreground/80">{s.filename}</span>
+                    <span className="opacity-50">·</span>
+                    <span>{s.page !== "N/A" ? `p. ${s.page}` : `part ${s.chunk_id + 1}`}</span>
+                  </span>
+                ))}
               </div>
             )}
           </div>
+        )}
+
+        {suggestedLinks.length > 0 && (
+          <SuggestedLinks items={suggestedLinks} sessionId={sessionId} onSourceAdded={onSourceAdded} />
+        )}
+
+        {followUps.length > 0 && (
+          <FollowUps items={followUps} onFollowUp={onFollowUp} />
         )}
       </div>
     </div>
@@ -143,17 +326,26 @@ const MessageBubble: React.FC<{ msg: IMessageBody }> = ({ msg }) => {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns }) => {
+const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, sessionId, onSourceAdded, onFollowUp, isLoading, useDocs }) => {
   const messageList = useMemo(() => flattenMessages(chatMessages), [chatMessages]);
 
   return (
     <div
       ref={scrollToAns}
-      className="flex-1 overflow-y-auto py-4 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-zinc-900"
+      className="flex-1 overflow-y-auto py-6 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
     >
-      {messageList.map((msg, index) => (
-        <MessageBubble key={index} msg={msg} />
-      ))}
+      <div className="mx-auto w-full max-w-3xl px-4">
+        {messageList.map((msg, index) => (
+          <MessageBubble
+            key={index}
+            msg={msg}
+            sessionId={sessionId}
+            onSourceAdded={onSourceAdded}
+            onFollowUp={onFollowUp}
+          />
+        ))}
+        {isLoading && <ThinkingIndicator useDocs={useDocs} />}
+      </div>
     </div>
   );
 };
