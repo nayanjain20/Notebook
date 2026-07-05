@@ -7,8 +7,10 @@ const MAX_SIZE_MB = 5;
 interface AddSourceMenuProps {
   // Resolves the current session id, creating one lazily if needed.
   ensureSession: () => Promise<string | null>;
-  onSourceAdded: () => void;
+  onSourceAdded: (sessionId: string) => void;
+  visuals: boolean;
   disabled?: boolean;
+  variant?: "icon" | "cta";
 }
 
 type ModalKind = null | "doc" | "link";
@@ -56,8 +58,9 @@ const ModalShell: React.FC<{
 const DocumentModal: React.FC<{
   ensureSession: () => Promise<string | null>;
   onClose: () => void;
-  onSourceAdded: () => void;
-}> = ({ ensureSession, onClose, onSourceAdded }) => {
+  onSourceAdded: (sessionId: string) => void;
+  visuals: boolean;
+}> = ({ ensureSession, onClose, onSourceAdded, visuals }) => {
   const [uploading, setUploading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [dragOver, setDragOver] = React.useState(false);
@@ -85,6 +88,7 @@ const DocumentModal: React.FC<{
     const formData = new FormData();
     formData.append("file", file);
     formData.append("session_id", sid);
+    formData.append("visuals", String(visuals));
     try {
       const res = await fetch(`${BASE_URL}/api/upload`, { method: "POST", body: formData });
       const data = await res.json();
@@ -92,7 +96,7 @@ const DocumentModal: React.FC<{
         setError(data.error ?? "Upload failed.");
         return;
       }
-      onSourceAdded();
+      onSourceAdded(sid);
       onClose();
     } catch {
       setError("Could not reach the backend.");
@@ -149,8 +153,9 @@ const DocumentModal: React.FC<{
 const LinkModal: React.FC<{
   ensureSession: () => Promise<string | null>;
   onClose: () => void;
-  onSourceAdded: () => void;
-}> = ({ ensureSession, onClose, onSourceAdded }) => {
+  onSourceAdded: (sessionId: string) => void;
+  visuals: boolean;
+}> = ({ ensureSession, onClose, onSourceAdded, visuals }) => {
   const [url, setUrl] = React.useState("");
   const [adding, setAdding] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -174,14 +179,14 @@ const LinkModal: React.FC<{
       const res = await fetch(`${BASE_URL}/api/upload_url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: trimmed, session_id: sid }),
+        body: JSON.stringify({ url: trimmed, session_id: sid, visuals }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "Failed to add link.");
         return;
       }
-      onSourceAdded();
+      onSourceAdded(sid);
       onClose();
     } catch {
       setError("Could not reach the backend.");
@@ -233,7 +238,7 @@ const LinkModal: React.FC<{
 
 // ─── Menu ─────────────────────────────────────────────────────────────────────
 
-const AddSourceMenu: React.FC<AddSourceMenuProps> = ({ ensureSession, onSourceAdded, disabled }) => {
+const AddSourceMenu: React.FC<AddSourceMenuProps> = ({ ensureSession, onSourceAdded, visuals, disabled, variant = "icon" }) => {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [modal, setModal] = React.useState<ModalKind>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
@@ -252,25 +257,42 @@ const AddSourceMenu: React.FC<AddSourceMenuProps> = ({ ensureSession, onSourceAd
     setMenuOpen(false);
   };
 
+  const isCta = variant === "cta";
+  const menuPosition = isCta ? "top-full mt-2" : "bottom-12";
+
   return (
     <>
-      <div className="relative shrink-0" ref={menuRef}>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (!disabled) setMenuOpen((v) => !v);
-          }}
-          disabled={disabled}
-          title="Add a source"
-          className={`p-2 rounded-full transition-colors ${
-            menuOpen ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted"
-          } disabled:opacity-40`}
-        >
-          <Plus className="w-5 h-5" />
-        </button>
+      <div className={`relative ${isCta ? "" : "shrink-0"}`} ref={menuRef}>
+        {isCta ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!disabled) setMenuOpen((v) => !v);
+            }}
+            disabled={disabled}
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-40 transition-opacity"
+          >
+            <Plus className="w-4 h-4" /> Add a source
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!disabled) setMenuOpen((v) => !v);
+            }}
+            disabled={disabled}
+            title="Add a source"
+            className={`p-2 rounded-full transition-colors ${
+              menuOpen ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            } disabled:opacity-40`}
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+        )}
         {menuOpen && (
-          <div className="absolute bottom-12 left-0 z-30 w-44 rounded-xl border border-border bg-popover shadow-lg p-1">
+          <div className={`absolute ${menuPosition} left-1/2 -translate-x-1/2 z-30 w-48 rounded-xl border border-border bg-popover shadow-lg p-1`}>
             <button
               onClick={() => open("doc")}
               className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-popover-foreground hover:bg-accent transition-colors"
@@ -288,10 +310,10 @@ const AddSourceMenu: React.FC<AddSourceMenuProps> = ({ ensureSession, onSourceAd
       </div>
 
       {modal === "doc" && (
-        <DocumentModal ensureSession={ensureSession} onClose={() => setModal(null)} onSourceAdded={onSourceAdded} />
+        <DocumentModal ensureSession={ensureSession} onClose={() => setModal(null)} onSourceAdded={onSourceAdded} visuals={visuals} />
       )}
       {modal === "link" && (
-        <LinkModal ensureSession={ensureSession} onClose={() => setModal(null)} onSourceAdded={onSourceAdded} />
+        <LinkModal ensureSession={ensureSession} onClose={() => setModal(null)} onSourceAdded={onSourceAdded} visuals={visuals} />
       )}
     </>
   );

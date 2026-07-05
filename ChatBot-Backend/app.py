@@ -111,6 +111,152 @@ AGENT_PERSONA = (
     "sources. Omit them for trivial replies. Never invent URLs — only suggest links you are confident are real."
 )
 
+# ─── Diagram (Mermaid) generation ─────────────────────────────────────────────
+
+DIAGRAM_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "provide_diagram",
+        "description": "Decide whether a diagram helps and, if so, produce a Mermaid diagram",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "needs_diagram": {
+                    "type": "boolean",
+                    "description": "True only if a diagram would substantially aid understanding (a process, flow, architecture, hierarchy, sequence, relationship, or timeline). False for simple factual text."
+                },
+                "mermaid": {
+                    "type": "string",
+                    "description": "Valid Mermaid diagram source (e.g. 'graph TD' / 'sequenceDiagram' / 'flowchart LR'). Keep node labels short. Empty string if needs_diagram is false."
+                },
+                "caption": {
+                    "type": "string",
+                    "description": "A short caption describing the diagram. Empty if no diagram."
+                }
+            },
+            "required": ["needs_diagram", "mermaid", "caption"]
+        }
+    }
+}
+
+_MERMAID_STARTERS = (
+    "graph", "flowchart", "sequencediagram", "classdiagram", "statediagram",
+    "erdiagram", "mindmap", "gantt", "pie", "journey", "gitgraph", "timeline",
+    "quadrantchart", "requirementdiagram",
+)
+
+
+def _clean_mermaid(text: str) -> str:
+    """Strip code fences and validate the diagram starts with a known Mermaid type."""
+    if not text:
+        return ""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1] if "```" in text[3:] else text[3:]
+        if text.lower().startswith("mermaid"):
+            text = text[len("mermaid"):]
+        text = text.strip()
+    first = text.lstrip().split(maxsplit=1)[0].lower() if text.strip() else ""
+    return text if first in _MERMAID_STARTERS else ""
+
+
+def generate_diagram(question: str, answer: str) -> dict:
+    """Secondary LLM call: returns {mermaid, caption} when a diagram helps, else None."""
+    try:
+        response = client.chat.completions.create(
+            model=DEPLOYMENT,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You turn explanations into diagrams. Given a question and its answer, decide if a "
+                        "Mermaid diagram would substantially help understanding. Only produce one for genuinely "
+                        "structural/relational/sequential content — not for simple facts. Output valid, minimal "
+                        "Mermaid with short labels. Avoid parentheses and special characters inside node text."
+                    ),
+                },
+                {"role": "user", "content": f"Question:\n{question}\n\nAnswer:\n{answer[:2500]}"},
+            ],
+            tools=[DIAGRAM_TOOL],
+            tool_choice={"type": "function", "function": {"name": "provide_diagram"}},
+            max_completion_tokens=600,
+            temperature=0.3,
+        )
+        args = json.loads(response.choices[0].message.tool_calls[0].function.arguments)
+        if not args.get("needs_diagram"):
+            return None
+        mermaid = _clean_mermaid(args.get("mermaid", ""))
+        if not mermaid:
+            return None
+        app.logger.info(f"[Diagram] Generated ({mermaid.splitlines()[0][:40]}…)")
+        return {"mermaid": mermaid, "caption": (args.get("caption") or "").strip()}
+    except Exception as e:
+        app.logger.warning(f"[Diagram] Generation failed: {e}")
+        return None
+
+
+def summarize_source(filename: str, chunks: list) -> str:
+    """Generate a brief summary of a newly added source from its chunks."""
+    text = "\n\n".join(c["text"] for c in chunks)[:12000]
+    try:
+        response = client.chat.completions.create(
+            model=DEPLOYMENT,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a study assistant. Write a brief, well-structured summary (120-180 words) of the "
+                        "document below so the reader quickly grasps what it covers. Use 2-4 short bullet points for "
+                        "the key topics. Start with one sentence naming what the document is about."
+                    ),
+                },
+                {"role": "user", "content": f"Document: {filename}\n\n{text}"},
+            ],
+            max_completion_tokens=400,
+            temperature=0.3,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        app.logger.warning(f"[Summary] Failed for '{filename}': {e}")
+        return ""
+
+
+def generate_title(text: str) -> str:
+    """Concise 3-6 word title from some text."""
+    try:
+        response = client.chat.completions.create(
+            model=DEPLOYMENT,
+            messages=[
+                {"role": "system", "content": "Generate a concise 3-6 word title capturing the topic. Return ONLY the title — no quotes, no trailing punctuation."},
+                {"role": "user", "content": text[:600]},
+            ],
+            max_completion_tokens=20,
+            temperature=0.4,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return ""
+
+
+def summarize_and_save(session_id: str, filename: str, chunks: list, visuals: bool = True) -> dict:
+    """Summarize a newly added source, optionally add a diagram, and save it as a
+    chat message. Sets the session title from the first source. Returns the saved
+    summary payload (or None if summarization produced nothing)."""
+    is_first = db.is_first_message(session_id)
+    summary = summarize_source(filename, chunks)
+    if not summary:
+        return None
+    diagram = generate_diagram(f"Overview of {filename}", summary) if visuals else None
+    db.save_message(session_id, "model", [{"text": summary}], diagram=diagram)
+
+    result = {"role": "model", "text": summary, "diagram": diagram}
+    if is_first:
+        title = generate_title(summary) or filename
+        db.update_session_title(session_id, title)
+        result["session_title"] = title
+    app.logger.info(f"[Summary] Saved summary for '{filename}' in session {session_id[:8]}… (first={is_first})")
+    return result
+
 # ─── Chat ─────────────────────────────────────────────────────────────────────
 
 @app.route('/api/get_response', methods=['POST'])
@@ -123,19 +269,17 @@ def get_response():
     if not user_message:
         return jsonify({"error": "message is required"}), 400
 
-    use_docs = data.get('use_docs', False)
+    visuals = data.get('visuals', True)
     session_id = data.get('session_id')
 
-    app.logger.info(f"[Request] session={session_id}  use_docs={use_docs}  message='{user_message[:80]}'")
+    app.logger.info(f"[Request] session={session_id}  visuals={visuals}  message='{user_message[:80]}'")
 
     history = data.get('history', [])
     system_prompt = AGENT_PERSONA + "\n\nAnswer from your general knowledge."
 
-    grounded_mode = bool(use_docs and session_id)
+    # Chat is always source-grounded (a session only exists once a source was added).
+    grounded_mode = bool(session_id)
     NOT_FOUND_MSG = "I couldn't find anything relevant in your uploaded documents or links to answer that."
-
-    if use_docs and not session_id:
-        app.logger.warning("[Request] use_docs=True but no session_id — skipping RAG")
 
     retrieved_chunks = []
     if grounded_mode:
@@ -247,6 +391,12 @@ def get_response():
             structured["confidence"] = 0.0
             structured["sources"] = []
 
+        # Optional visual: a Mermaid diagram when it aids understanding.
+        diagram = None
+        if visuals and structured.get("sources"):
+            diagram = generate_diagram(user_message, structured["answer"])
+        structured["diagram"] = diagram
+
         if EVALS_MODE and retrieved_chunks:
             structured["contexts"] = [c["text"] for c in retrieved_chunks]
 
@@ -258,6 +408,7 @@ def get_response():
                 sources=unique_sources or None,
                 follow_ups=follow_ups or None,
                 suggested_links=suggested_links or None,
+                diagram=diagram,
             )
 
         if is_first and session_id:
@@ -358,7 +509,14 @@ def upload_file():
     try:
         chunks = extract_and_chunk(filepath, filename)
         embed_and_store(chunks, filename, session_id)
-        return jsonify({"status": "indexed", "filename": filename, "chunks_indexed": len(chunks)})
+        visuals = (request.form.get("visuals", "true").lower() != "false")
+        summary = summarize_and_save(session_id, filename, chunks, visuals)
+        return jsonify({
+            "status": "indexed",
+            "filename": filename,
+            "chunks_indexed": len(chunks),
+            "summary": summary,
+        })
     except Exception as e:
         app.logger.error(f"Ingestion error: {e}")
         return jsonify({"error": "Failed to process document."}), 500
@@ -393,7 +551,14 @@ def upload_url():
         if not chunks:
             return jsonify({"error": "No readable content found at that URL."}), 422
         embed_and_store(chunks, name, session_id)
-        return jsonify({"status": "indexed", "filename": name, "chunks_indexed": len(chunks)})
+        visuals = bool(data.get("visuals", True))
+        summary = summarize_and_save(session_id, name, chunks, visuals)
+        return jsonify({
+            "status": "indexed",
+            "filename": name,
+            "chunks_indexed": len(chunks),
+            "summary": summary,
+        })
     except Exception as e:
         app.logger.error(f"URL ingestion error: {e}")
         return jsonify({"error": "Failed to fetch or process that URL."}), 500
