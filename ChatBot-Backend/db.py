@@ -21,10 +21,15 @@ def init_db():
                 id          TEXT PRIMARY KEY,
                 user_id     TEXT NOT NULL DEFAULT 'default',
                 title       TEXT NOT NULL DEFAULT 'New Chat',
+                context     TEXT,
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
             )
         """)
+        # Migrate older databases that predate the session context column.
+        session_cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        if "context" not in session_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN context TEXT")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,6 +41,7 @@ def init_db():
                 follow_ups  TEXT,
                 suggested_links TEXT,
                 diagram     TEXT,
+                steps       TEXT,
                 created_at  TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )
@@ -48,6 +54,8 @@ def init_db():
             conn.execute("ALTER TABLE messages ADD COLUMN suggested_links TEXT")
         if "diagram" not in existing_cols:
             conn.execute("ALTER TABLE messages ADD COLUMN diagram TEXT")
+        if "steps" not in existing_cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN steps TEXT")
         conn.commit()
 
 
@@ -81,7 +89,7 @@ def list_sessions() -> list:
 def get_session_messages(session_id: str) -> list:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT role, parts, confidence, sources, follow_ups, suggested_links, diagram FROM messages WHERE session_id = ? ORDER BY id ASC",
+            "SELECT role, parts, confidence, sources, follow_ups, suggested_links, diagram, steps FROM messages WHERE session_id = ? ORDER BY id ASC",
             (session_id,),
         ).fetchall()
     result = []
@@ -97,6 +105,8 @@ def get_session_messages(session_id: str) -> list:
             msg["suggested_links"] = json.loads(r["suggested_links"])
         if r["diagram"]:
             msg["diagram"] = json.loads(r["diagram"])
+        if r["steps"]:
+            msg["steps"] = json.loads(r["steps"])
         result.append(msg)
     return result
 
@@ -110,6 +120,23 @@ def delete_session(session_id: str):
 def update_session_title(session_id: str, title: str):
     with _connect() as conn:
         conn.execute("UPDATE sessions SET title = ? WHERE id = ?", (title, session_id))
+        conn.commit()
+
+
+def get_session_context(session_id: str) -> dict:
+    with _connect() as conn:
+        row = conn.execute("SELECT context FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    if row and row["context"]:
+        try:
+            return json.loads(row["context"])
+        except (ValueError, TypeError):
+            return {}
+    return {}
+
+
+def update_session_context(session_id: str, context: dict):
+    with _connect() as conn:
+        conn.execute("UPDATE sessions SET context = ? WHERE id = ?", (json.dumps(context), session_id))
         conn.commit()
 
 
@@ -127,17 +154,18 @@ def is_first_message(session_id: str) -> bool:
 
 
 def save_message(session_id: str, role: str, parts: list, confidence=None, sources=None,
-                 follow_ups=None, suggested_links=None, diagram=None):
+                 follow_ups=None, suggested_links=None, diagram=None, steps=None):
     now = _now()
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO messages (session_id, role, parts, confidence, sources, follow_ups, suggested_links, diagram, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages (session_id, role, parts, confidence, sources, follow_ups, suggested_links, diagram, steps, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, role, json.dumps(parts), confidence,
              json.dumps(sources) if sources is not None else None,
              json.dumps(follow_ups) if follow_ups is not None else None,
              json.dumps(suggested_links) if suggested_links is not None else None,
              json.dumps(diagram) if diagram is not None else None,
+             json.dumps(steps) if steps is not None else None,
              now),
         )
         conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))

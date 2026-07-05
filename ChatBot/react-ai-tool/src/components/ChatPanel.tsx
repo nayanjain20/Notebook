@@ -2,10 +2,8 @@ import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatTypeEnum, RoleEnum, type IChatMessage, type IChatTypes, type IRoleTypes } from "../App";
-import { Copy, CopyCheck, BookText, ChevronDown, FileText, Link as LinkIcon, Plus, Check, Loader, Sparkles } from "lucide-react";
+import { Copy, CopyCheck, BookText, ChevronDown, FileText, Check, Sparkles } from "lucide-react";
 import MermaidDiagram from "./MermaidDiagram";
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 // Playful, Claude-Code-style status verbs shown while the agent responds.
 const THINKING_VERBS = [
@@ -13,23 +11,70 @@ const THINKING_VERBS = [
   "Marinating", "Crunching", "Noodling", "Untangling", "Distilling", "Mulling",
 ];
 
-const ThinkingIndicator: React.FC = () => {
+const ThinkingIndicator: React.FC<{ steps: string[]; label?: string }> = ({ steps, label }) => {
   const [i, setI] = React.useState(() => Math.floor(Math.random() * THINKING_VERBS.length));
   React.useEffect(() => {
     const id = setInterval(() => setI((v) => (v + 1) % THINKING_VERBS.length), 1600);
     return () => clearInterval(id);
   }, []);
 
-  return (
-    <div className="py-3">
-      <div className="inline-flex items-center gap-2.5 text-sm">
-        <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/50" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
-        </span>
-        <span className="font-medium text-foreground/90 animate-pulse">{THINKING_VERBS[i]}…</span>
-        <span className="text-muted-foreground">reading your sources</span>
+  if (steps.length === 0) {
+    return (
+      <div className="py-3">
+        <div className="inline-flex items-center gap-2.5 text-sm">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/50" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+          </span>
+          <span className="font-medium text-foreground/90 animate-pulse">{label ?? `${THINKING_VERBS[i]}…`}</span>
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="py-3 space-y-1">
+      {steps.map((s, idx) => {
+        const isLast = idx === steps.length - 1;
+        return (
+          <div key={idx} className={`flex items-center gap-2 text-xs ${isLast ? "text-foreground/90" : "text-muted-foreground/70"}`}>
+            {isLast ? (
+              <span className="relative flex h-1.5 w-1.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/50" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" />
+              </span>
+            ) : (
+              <Check size={11} className="shrink-0 text-muted-foreground/60" />
+            )}
+            <span className={isLast ? "animate-pulse" : ""}>{s}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/** Collapsible small-font trace of what the agent did for a past message. */
+const ThoughtTrace: React.FC<{ steps: string[] }> = ({ steps }) => {
+  const [open, setOpen] = React.useState(false);
+  if (!steps.length) return null;
+  return (
+    <div className="mb-2">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Sparkles size={11} />
+        Thought process
+        <ChevronDown size={10} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <ul className="mt-1 space-y-0.5 border-l border-border pl-2.5">
+          {steps.map((s, i) => (
+            <li key={i} className="text-[11px] text-muted-foreground">{s}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 };
@@ -37,13 +82,13 @@ const ThinkingIndicator: React.FC = () => {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface IChatPannel {
+interface IChatPanel {
   chatMessages: IChatMessage[];
   scrollToAns: React.RefObject<HTMLDivElement>;
-  sessionId: string | null;
-  onSourceAdded: (sessionId: string) => void;
   onFollowUp: (text: string) => void;
   isLoading: boolean;
+  ingesting?: boolean;
+  liveSteps: string[];
 }
 
 interface IMessageBody {
@@ -57,6 +102,7 @@ interface IMessageBody {
   followUps?: string[];
   suggestedLinks?: { url: string; title: string }[];
   diagram?: { mermaid: string; caption?: string } | null;
+  steps?: string[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -76,6 +122,7 @@ function flattenMessages(chatMessages: IChatMessage[]): IMessageBody[] {
             followUps: chat.follow_ups,
             suggestedLinks: chat.suggested_links,
             diagram: chat.diagram,
+            steps: chat.steps,
           };
         if ("base64Image" in part)
           return { role: chat.role, type: ChatTypeEnum.Image, base64Image: part.base64Image };
@@ -152,95 +199,11 @@ const FollowUps: React.FC<{ items: string[]; onFollowUp: (t: string) => void }> 
   </div>
 );
 
-/** Curated links the assistant recommends adding as sources (add each / add all). */
-const SuggestedLinks: React.FC<{
-  items: { url: string; title: string }[];
-  sessionId: string | null;
-  onSourceAdded: (sessionId: string) => void;
-}> = ({ items, sessionId, onSourceAdded }) => {
-  const [status, setStatus] = React.useState<Record<string, "idle" | "adding" | "done" | "error">>({});
-
-  const addOne = async (url: string) => {
-    if (!sessionId || status[url] === "adding" || status[url] === "done") return;
-    setStatus((s) => ({ ...s, [url]: "adding" }));
-    try {
-      const res = await fetch(`${BASE_URL}/api/upload_url`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, session_id: sessionId, visuals: true }),
-      });
-      if (!res.ok) throw new Error();
-      setStatus((s) => ({ ...s, [url]: "done" }));
-      onSourceAdded(sessionId);
-    } catch {
-      setStatus((s) => ({ ...s, [url]: "error" }));
-    }
-  };
-
-  const addAll = () => items.forEach((it) => addOne(it.url));
-  const remaining = items.filter((it) => status[it.url] !== "done" && status[it.url] !== "adding").length;
-
-  return (
-    <div className="mt-3 rounded-lg border border-border bg-muted/40 p-2.5">
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <LinkIcon size={12} /> Suggested sources to add
-        </span>
-        {items.length > 1 && remaining > 0 && (
-          <button
-            onClick={addAll}
-            disabled={!sessionId}
-            className="text-xs font-medium text-foreground hover:underline disabled:opacity-40"
-          >
-            Add all
-          </button>
-        )}
-      </div>
-      <ul className="space-y-1">
-        {items.map(({ url, title }) => {
-          const st = status[url] ?? "idle";
-          return (
-            <li key={url} className="flex items-center gap-2 text-xs">
-              <a
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex-1 min-w-0 truncate text-foreground/90 hover:text-foreground underline underline-offset-2 decoration-muted-foreground"
-                title={url}
-              >
-                {title}
-              </a>
-              <button
-                onClick={() => addOne(url)}
-                disabled={!sessionId || st === "adding" || st === "done"}
-                title={st === "done" ? "Added" : st === "error" ? "Failed — retry" : "Add as source"}
-                className={`inline-flex items-center gap-1 shrink-0 rounded-md px-2 py-1 border transition-colors
-                  ${st === "done"
-                    ? "border-emerald-600/40 text-emerald-600 dark:text-emerald-400"
-                    : st === "error"
-                      ? "border-destructive/50 text-destructive hover:bg-destructive/10"
-                      : "border-border text-foreground hover:bg-accent"}`}
-              >
-                {st === "adding" ? <Loader size={11} className="animate-spin" />
-                  : st === "done" ? <Check size={11} />
-                  : <Plus size={11} />}
-                {st === "done" ? "Added" : st === "adding" ? "Adding" : st === "error" ? "Retry" : "Add"}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-};
-
 /** Renders a single chat bubble — user (right-aligned) or model (left-aligned). */
 const MessageBubble: React.FC<{
   msg: IMessageBody;
-  sessionId: string | null;
-  onSourceAdded: (sessionId: string) => void;
   onFollowUp: (t: string) => void;
-}> = ({ msg, sessionId, onSourceAdded, onFollowUp }) => {
+}> = ({ msg, onFollowUp }) => {
   const isUser = msg.role === RoleEnum.User;
   const [showSources, setShowSources] = React.useState(false);
 
@@ -265,11 +228,11 @@ const MessageBubble: React.FC<{
   // Grounded answers carry citations; only then do we surface confidence/sources.
   const hasSources = !!(msg.sources && msg.sources.length > 0);
   const followUps = msg.followUps ?? [];
-  const suggestedLinks = msg.suggestedLinks ?? [];
 
   return (
     <div className="py-2">
       <div className="w-full">
+        {msg.steps && msg.steps.length > 0 && <ThoughtTrace steps={msg.steps} />}
         <div className="md">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
         </div>
@@ -316,10 +279,6 @@ const MessageBubble: React.FC<{
           </div>
         )}
 
-        {suggestedLinks.length > 0 && (
-          <SuggestedLinks items={suggestedLinks} sessionId={sessionId} onSourceAdded={onSourceAdded} />
-        )}
-
         {followUps.length > 0 && (
           <FollowUps items={followUps} onFollowUp={onFollowUp} />
         )}
@@ -330,7 +289,7 @@ const MessageBubble: React.FC<{
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, sessionId, onSourceAdded, onFollowUp, isLoading }) => {
+const ChatPanel: React.FC<IChatPanel> = ({ chatMessages, scrollToAns, onFollowUp, isLoading, ingesting, liveSteps }) => {
   const messageList = useMemo(() => flattenMessages(chatMessages), [chatMessages]);
 
   return (
@@ -343,15 +302,13 @@ const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, sessionI
           <MessageBubble
             key={index}
             msg={msg}
-            sessionId={sessionId}
-            onSourceAdded={onSourceAdded}
             onFollowUp={onFollowUp}
           />
         ))}
-        {isLoading && <ThinkingIndicator />}
+        {isLoading && <ThinkingIndicator steps={liveSteps} label={ingesting ? "Reading your source…" : undefined} />}
       </div>
     </div>
   );
 };
 
-export default ChatPannel;
+export default ChatPanel;

@@ -1,6 +1,5 @@
 flask
 flask-cors
-pymongo[srv]
 python-dotenv
 openai
 chromadb

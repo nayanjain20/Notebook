@@ -39,26 +39,37 @@ Full-stack AI chatbot ("Notebook") with:
 ## Key File Map
 
 ```
-Bot_project/
+Notebook/
 ├── README.md                              # Project overview + setup guide
+├── DESIGN.md                              # Lean architecture overview
 ├── CLAUDE.md                              # This file
 ├── ChatBot-Backend/
-│   ├── app.py                             # All Flask routes (chat, sessions, upload, upload_url, docs)
-│   ├── db.py                              # SQLite session/message CRUD
+│   ├── app.py                             # Application factory + entry point
+│   ├── routes.py                          # HTTP/SSE API (one /api blueprint)
+│   ├── agent.py                           # Reasoning loop + streaming orchestrator
+│   ├── onboarding.py                      # Assistant reaction when a source is added
 │   ├── ingestion.py                       # Chunking, embedding, RAG pipeline, URL ingestion, cross-encoder rerank
+│   ├── prompts.py                         # Persona (soul.md), session memory, tool schemas
+│   ├── llm.py                             # Azure OpenAI client + call_tool/call_text helpers
+│   ├── helpers.py                         # Pure data-shaping utilities
+│   ├── config.py                          # Env vars + constants
+│   ├── db.py                              # SQLite session/message CRUD
+│   ├── soul.md                            # Agent persona and teaching rules
+│   ├── LLD.md                             # Backend low-level design
 │   ├── requirements.txt
 │   ├── eval/                              # RAGAS eval harness (run_eval.py, pipeline.py, generate_testset.py)
 │   ├── test_data/                         # Eval datasets (test_dataset.json)
 │   └── tests/test_rerank.py
 └── ChatBot/react-ai-tool/src/
     ├── App.tsx                            # Root component, session state
-    ├── hooks/useChat.ts                   # Message state + sendMessage
+    ├── hooks/useChat.ts                   # Message state + SSE consumer
     └── components/
         ├── SessionList.tsx                # Session sidebar (forwardRef)
-        ├── FileUpload.tsx                 # Document upload panel
-        ├── ChatPannel.tsx                 # Message rendering
-        ├── ChatHeader.tsx                 # Static header
-        └── LoaderSpinner.tsx              # Loading overlay
+        ├── FileUpload.tsx                 # Source upload panel
+        ├── AddSourceMenu.tsx              # "+" add-source menu (file/URL)
+        ├── ChatPanel.tsx                  # Message rendering + thought trace
+        ├── MermaidDiagram.tsx             # Diagram rendering with zoom
+        └── ChatHeader.tsx                 # Static header
 ```
 
 ---
@@ -124,11 +135,8 @@ Deleting a session removes all four.
 
 - **No authentication** — all sessions visible to any client; `user_id` is always `"default"`
 - **No rate limiting** on any endpoint
-- **pymongo installed but unused** — can be removed from `requirements.txt`
-- **Cohere env vars (`AZURE_COHERE_*`) are dead config** — reranker is now the local cross-encoder; README still lists them
-- **`axios` installed but unused** in the frontend — can be removed from `package.json`
-- **Multiple Google AI packages** installed in frontend (`@google/genai` + `@google/generative-ai`) — unused, can be removed
+- **Unused deps removed** — `pymongo` (backend) and `axios` + `@google/*` + `mongodb` + unused Azure/OpenAI/speech packages (frontend) have been pruned
 - **BM25 index is in-memory only** — restarts lose all indexes (rebuilt on first search or upload)
 - **CORS is fully open** (`CORS(app)`) — restrict to frontend origin before production deployment
-- **`.env` file with real credentials** is committed in git history — rotate keys if this repo goes public
+- **A real Azure OpenAI key was committed in early git history** (in a since-deleted notebook) — the key MUST be rotated in the Azure Portal; deleting the file does not scrub history
 - **Flask runs in `debug=True`** — change to `False` for production

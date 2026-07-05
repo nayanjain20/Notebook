@@ -9,6 +9,7 @@ interface AddSourceMenuProps {
   // Resolves the current session id, creating one lazily if needed.
   ensureSession: () => Promise<string | null>;
   onSourceAdded: (sessionId: string) => void;
+  onSourceAddStart?: () => void;
   visuals: boolean;
   disabled?: boolean;
   variant?: "icon" | "cta";
@@ -61,8 +62,9 @@ const DocumentModal: React.FC<{
   ensureSession: () => Promise<string | null>;
   onClose: () => void;
   onSourceAdded: (sessionId: string) => void;
+  onSourceAddStart?: () => void;
   visuals: boolean;
-}> = ({ ensureSession, onClose, onSourceAdded, visuals }) => {
+}> = ({ ensureSession, onClose, onSourceAdded, onSourceAddStart, visuals }) => {
   const [uploading, setUploading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [dragOver, setDragOver] = React.useState(false);
@@ -81,6 +83,8 @@ const DocumentModal: React.FC<{
     }
 
     setUploading(true);
+    onSourceAddStart?.();
+    onClose();
     const sid = await ensureSession();
     if (!sid) {
       setError("Could not start a chat.");
@@ -99,7 +103,6 @@ const DocumentModal: React.FC<{
         return;
       }
       onSourceAdded(sid);
-      onClose();
     } catch {
       setError("Could not reach the backend.");
     } finally {
@@ -156,8 +159,9 @@ const LinkModal: React.FC<{
   ensureSession: () => Promise<string | null>;
   onClose: () => void;
   onSourceAdded: (sessionId: string) => void;
+  onSourceAddStart?: () => void;
   visuals: boolean;
-}> = ({ ensureSession, onClose, onSourceAdded, visuals }) => {
+}> = ({ ensureSession, onClose, onSourceAdded, onSourceAddStart, visuals }) => {
   const [url, setUrl] = React.useState("");
   const [adding, setAdding] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -171,6 +175,8 @@ const LinkModal: React.FC<{
     }
 
     setAdding(true);
+    onSourceAddStart?.();
+    onClose();
     const sid = await ensureSession();
     if (!sid) {
       setError("Could not start a chat.");
@@ -189,7 +195,6 @@ const LinkModal: React.FC<{
         return;
       }
       onSourceAdded(sid);
-      onClose();
     } catch {
       setError("Could not reach the backend.");
     } finally {
@@ -240,7 +245,7 @@ const LinkModal: React.FC<{
 
 // ─── Menu ─────────────────────────────────────────────────────────────────────
 
-const AddSourceMenu: React.FC<AddSourceMenuProps> = ({ ensureSession, onSourceAdded, visuals, disabled, variant = "icon" }) => {
+const AddSourceMenu: React.FC<AddSourceMenuProps> = ({ ensureSession, onSourceAdded, onSourceAddStart, visuals, disabled, variant = "icon" }) => {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [modal, setModal] = React.useState<ModalKind>(null);
   const menuRef = React.useRef<HTMLDivElement>(null);
@@ -312,10 +317,10 @@ const AddSourceMenu: React.FC<AddSourceMenuProps> = ({ ensureSession, onSourceAd
       </div>
 
       {modal === "doc" && (
-        <DocumentModal ensureSession={ensureSession} onClose={() => setModal(null)} onSourceAdded={onSourceAdded} visuals={visuals} />
+        <DocumentModal ensureSession={ensureSession} onClose={() => setModal(null)} onSourceAdded={onSourceAdded} onSourceAddStart={onSourceAddStart} visuals={visuals} />
       )}
       {modal === "link" && (
-        <LinkModal ensureSession={ensureSession} onClose={() => setModal(null)} onSourceAdded={onSourceAdded} visuals={visuals} />
+        <LinkModal ensureSession={ensureSession} onClose={() => setModal(null)} onSourceAdded={onSourceAdded} onSourceAddStart={onSourceAddStart} visuals={visuals} />
       )}
     </>
   );

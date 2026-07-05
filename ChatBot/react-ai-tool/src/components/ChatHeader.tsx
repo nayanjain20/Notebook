@@ -1,12 +1,13 @@
 import React from "react";
-import { PanelLeftClose, Notebook, BookOpen } from "lucide-react";
+import { PanelLeftClose, Notebook, BookOpen, PenSquare } from "lucide-react";
 
 interface ChatHeaderProps {
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
+  onNewChat: () => void;
 }
 
-const ChatHeader: React.FC<ChatHeaderProps> = ({ sidebarOpen, onToggleSidebar }) => {
+const ChatHeader: React.FC<ChatHeaderProps> = ({ sidebarOpen, onToggleSidebar, onNewChat }) => {
   return (
     <div className="flex items-center gap-2 px-4 py-3 border-b border-border h-[52px] shrink-0">
       <button
@@ -30,6 +31,13 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({ sidebarOpen, onToggleSidebar })
       <h1 className="font-serif text-xl font-semibold tracking-tight text-foreground">
         Notebook
       </h1>
+      <button
+        onClick={onNewChat}
+        title="New chat"
+        className="ml-auto p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+      >
+        <PenSquare size={17} />
+      </button>
     </div>
   );
 };
