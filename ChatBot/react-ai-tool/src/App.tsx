@@ -84,9 +84,10 @@ function App() {
   }, [latestTitle]);
 
   const onPrompt = async (text: string) => {
-    if (!text.trim()) return;
-    await sendMessage(text);
+    const trimmed = text.trim();
+    if (!trimmed) return;
     setInputText("");
+    await sendMessage(trimmed);
   };
 
   const onKeyDownQuestion = (event: React.KeyboardEvent) => {
