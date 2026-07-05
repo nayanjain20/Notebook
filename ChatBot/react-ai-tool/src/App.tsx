@@ -22,6 +22,7 @@ export interface IChatMessage {
   follow_ups?: string[];
   suggested_links?: { url: string; title: string }[];
   diagram?: { mermaid: string; caption?: string } | null;
+  steps?: string[];
 }
 
 export const RoleEnum = {
@@ -57,10 +58,11 @@ function App() {
     sessionListRef.current?.addSession(session);
   }, []);
 
-  const { messages, isLoading, sendMessage, latestTitle, ensureSession, refreshMessages } = useChat(
+  const { messages, isLoading, sendMessage, latestTitle, ensureSession, refreshMessages, liveSteps } = useChat(
     visuals,
     activeSession?.id ?? null,
-    handleSessionCreated
+    handleSessionCreated,
+    () => setDocsRefresh((v) => v + 1)
   );
 
   React.useEffect(() => {
@@ -137,7 +139,6 @@ function App() {
           ref={sessionListRef}
           activeSessionId={activeSession?.id ?? null}
           onSelect={handleSelectSession}
-          onNewChat={handleNewChat}
           onDelete={handleSessionDelete}
         />
 
@@ -152,7 +153,7 @@ function App() {
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <ChatHeader sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((v) => !v)} />
+        <ChatHeader sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((v) => !v)} onNewChat={handleNewChat} />
 
         {noSessionSelected ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
@@ -177,10 +178,9 @@ function App() {
           <ChatPannel
             chatMessages={messages}
             scrollToAns={scrollToAns}
-            sessionId={activeSession?.id ?? null}
-            onSourceAdded={handleSourceAdded}
             onFollowUp={(t) => onPrompt(t)}
             isLoading={isLoading}
+            liveSteps={liveSteps}
           />
         )}
 
@@ -198,15 +198,9 @@ function App() {
 
           {/* Input */}
           <div
-            className={`bg-card w-[min(42rem,90%)] text-foreground rounded-2xl border flex items-center gap-1 p-2 h-14 transition-colors shadow-sm
+            className={`bg-card w-[min(42rem,90%)] text-foreground rounded-2xl border flex items-center gap-1 px-4 py-2 h-14 transition-colors shadow-sm
               ${canChat ? "border-border focus-within:border-ring" : "border-border opacity-50"}`}
           >
-            <AddSourceMenu
-              ensureSession={ensureSession}
-              onSourceAdded={handleSourceAdded}
-              visuals={visuals}
-              disabled={false}
-            />
             <input
               ref={inputRef}
               autoFocus

@@ -7,11 +7,13 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 export const useChat = (
   visuals: boolean,
   sessionId: string | null,
-  onSessionCreated?: (session: ISession) => void
+  onSessionCreated?: (session: ISession) => void,
+  onSourcesAdded?: () => void
 ) => {
   const [messages, setMessages] = React.useState<IChatMessage[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [latestTitle, setLatestTitle] = React.useState<string | null>(null);
+  const [liveSteps, setLiveSteps] = React.useState<string[]>([]);
   const skipLoadRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -62,12 +64,13 @@ export const useChat = (
     if (!trimmed || isLoading || !sessionId) return; // chat requires an existing session
 
     setIsLoading(true);
+    setLiveSteps([]);
     const priorMessages = messages;
     const userMessage: IChatMessage = { role: RoleEnum.User, parts: [{ text: trimmed }] };
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      const res = await fetch(`${BASE_URL}/api/get_response`, {
+      const res = await fetch(`${BASE_URL}/api/chat_stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -78,22 +81,54 @@ export const useChat = (
         }),
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error ?? `Server error ${res.status}`);
+      if (!res.ok || !res.body) {
+        throw new Error(`Server error ${res.status}`);
       }
-      const data = await res.json();
-      const botMessage: IChatMessage = {
-        role: RoleEnum.Model,
-        parts: [{ text: data.answer }],
-        confidence: data.confidence,
-        sources: data.sources,
-        follow_ups: data.follow_ups,
-        suggested_links: data.suggested_links,
-        diagram: data.diagram,
-      };
-      setMessages((prev) => [...prev, botMessage]);
-      if (data.session_title) setLatestTitle(data.session_title);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalData: any = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() ?? "";
+        for (const chunk of chunks) {
+          const line = chunk.trim();
+          if (!line.startsWith("data:")) continue;
+          let ev: any;
+          try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
+          if (ev.type === "step") {
+            setLiveSteps((prev) => [...prev, ev.text]);
+          } else if (ev.type === "sources_added") {
+            onSourcesAdded?.();
+          } else if (ev.type === "final") {
+            finalData = ev;
+          } else if (ev.type === "error") {
+            throw new Error(ev.text);
+          }
+        }
+      }
+
+      if (finalData) {
+        const botMessage: IChatMessage = {
+          role: RoleEnum.Model,
+          parts: [{ text: finalData.answer }],
+          confidence: finalData.confidence,
+          sources: finalData.sources,
+          follow_ups: finalData.follow_ups,
+          suggested_links: finalData.suggested_links,
+          diagram: finalData.diagram,
+          steps: finalData.steps,
+        };
+        setMessages((prev) => [...prev, botMessage]);
+        if (finalData.session_title) setLatestTitle(finalData.session_title);
+      } else {
+        throw new Error("No response");
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -101,8 +136,9 @@ export const useChat = (
       ]);
     } finally {
       setIsLoading(false);
+      setLiveSteps([]);
     }
   };
 
-  return { messages, isLoading, sendMessage, latestTitle, ensureSession, refreshMessages };
+  return { messages, isLoading, sendMessage, latestTitle, ensureSession, refreshMessages, liveSteps };
 };

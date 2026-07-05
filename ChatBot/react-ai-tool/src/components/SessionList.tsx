@@ -1,5 +1,5 @@
 import React from "react";
-import { MessageSquarePlus, Trash2, MessageSquare } from "lucide-react";
+import { Trash2, MessageSquare } from "lucide-react";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -12,7 +12,6 @@ export interface ISession {
 interface SessionListProps {
   activeSessionId: string | null;
   onSelect: (session: ISession) => void;
-  onNewChat: () => void;
   onDelete: (sessionId: string) => void;
 }
 
@@ -32,7 +31,7 @@ function relativeTime(iso: string): string {
 }
 
 const SessionList = React.forwardRef<SessionListRef, SessionListProps>(
-  ({ activeSessionId, onSelect, onNewChat, onDelete }, ref) => {
+  ({ activeSessionId, onSelect, onDelete }, ref) => {
     const [sessions, setSessions] = React.useState<ISession[]>([]);
 
     React.useEffect(() => {
@@ -67,21 +66,14 @@ const SessionList = React.forwardRef<SessionListRef, SessionListProps>(
     return (
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-sidebar-border">
+        <div className="flex items-center px-4 py-3 border-b border-sidebar-border">
           <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Chats</span>
-          <button
-            onClick={onNewChat}
-            title="New chat"
-            className="p-1 rounded-md hover:bg-sidebar-accent text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <MessageSquarePlus size={16} />
-          </button>
         </div>
 
         {/* Session list */}
         <div className="flex-1 overflow-y-auto py-1 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
           {sessions.length === 0 ? (
-            <p className="text-xs text-muted-foreground/70 text-center mt-6 px-3">No chats yet.<br />Click + to start one.</p>
+            <p className="text-xs text-muted-foreground/70 text-center mt-6 px-3">No chats yet.</p>
           ) : (
             sessions.map((s) => (
               <button

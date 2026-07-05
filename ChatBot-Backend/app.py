@@ -2,7 +2,7 @@ import os
 import json
 import logging
 from urllib.parse import urlparse
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from openai import AzureOpenAI
 from dotenv import load_dotenv
@@ -86,6 +86,19 @@ ANSWER_TOOL = {
                         "topic and that the user can add as new sources. Only suggest URLs you are confident are "
                         "real and canonical (e.g. official docs). If unsure, return an empty list — never invent URLs."
                     )
+                },
+                "session_update": {
+                    "type": "object",
+                    "description": "Update your memory of this learning session. Include only fields that changed.",
+                    "properties": {
+                        "purpose": {"type": "string", "description": "The user's overall goal, once known"},
+                        "expectations": {"type": "string", "description": "What kind of help/depth the user expects"},
+                        "current_topic": {"type": "string", "description": "The topic of this turn"},
+                        "example_domain": {"type": "string", "description": "The running example/analogy you are using this session (e.g. 'coffee shop', 'library'). Set once you pick one; keep it consistent; change only if the user asks."},
+                        "covered_add": {"type": "array", "items": {"type": "string"}, "description": "Short labels of concepts you just taught, to remember as covered"},
+                        "interests": {"type": "array", "items": {"type": "string"}, "description": "Subtopics the user showed interest in"},
+                        "next_step": {"type": "string", "description": "The natural next step you plan to take"}
+                    }
                 }
             },
             "required": ["answer", "confidence", "source_indices"]
@@ -97,19 +110,50 @@ ANSWER_TOOL = {
 def index():
     return jsonify({"message": "Hello from GemBot Flask API!"})
 
-# ─── Assistant persona ────────────────────────────────────────────────────────
+# ─── Assistant soul (persona + rules) ─────────────────────────────────────────
 
-AGENT_PERSONA = (
-    "You are Notebook, a focused study assistant that helps the user understand a topic using their "
-    "sources (uploaded documents and web links). Be concise but substantive, and write with clear "
-    "structure — short paragraphs, bullet lists, and headings when they aid understanding.\n"
-    "Critically: do NOT repeat what you already said earlier in this conversation. Each turn should add "
-    "something new — a deeper detail, a concrete example, a distinction, or a next angle. If the user asks "
-    "something broad you've partly covered, advance the explanation instead of restating it.\n"
-    "When (and only when) it genuinely helps the user learn, use 'follow_ups' to offer 1-3 specific next "
-    "questions/actions, and use 'suggested_links' to recommend authoritative pages the user could add as "
-    "sources. Omit them for trivial replies. Never invent URLs — only suggest links you are confident are real."
+_AGENT_PERSONA_FALLBACK = (
+    "You are Notebook, a warm learning companion that helps the user understand a topic "
+    "using their sources. Be concise, use plain language and examples, teach step by step, "
+    "show diagrams only when they help, and refuse harmful or unsafe content."
 )
+
+
+def _load_soul() -> str:
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "soul.md"), encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"[Soul] Could not load soul.md ({e}); using fallback")
+        return _AGENT_PERSONA_FALLBACK
+
+
+# The "soul" is the agent's core behavior, loaded once and used as the base of every prompt.
+AGENT_PERSONA = _load_soul()
+
+
+def _context_block(context: dict) -> str:
+    """Render the session context (agent memory) for injection into the prompt."""
+    if not context:
+        return ""
+    parts = []
+    if context.get("purpose"):
+        parts.append(f"User's goal: {context['purpose']}")
+    if context.get("expectations"):
+        parts.append(f"Expectations: {context['expectations']}")
+    if context.get("current_topic"):
+        parts.append(f"Current topic: {context['current_topic']}")
+    if context.get("example_domain"):
+        parts.append(f"Running example to reuse: {context['example_domain']}")
+    if context.get("covered"):
+        parts.append("Already covered: " + "; ".join(context["covered"][-8:]))
+    if context.get("interests"):
+        parts.append("Interests: " + ", ".join(context["interests"][-6:]))
+    if context.get("next_step"):
+        parts.append(f"Planned next step: {context['next_step']}")
+    return ("\n\nSESSION MEMORY (what you know so far — use it, keep it consistent):\n- "
+            + "\n- ".join(parts)) if parts else ""
+
 
 # ─── Diagram (Mermaid) generation ─────────────────────────────────────────────
 
@@ -123,7 +167,12 @@ DIAGRAM_TOOL = {
             "properties": {
                 "needs_diagram": {
                     "type": "boolean",
-                    "description": "True only if a diagram would substantially aid understanding (a process, flow, architecture, hierarchy, sequence, relationship, or timeline). False for simple factual text."
+                    "description": (
+                        "True ONLY if the answer explains something inherently visual/structural: a process or "
+                        "flow, a sequence of steps, a system architecture, how components relate, a hierarchy, or "
+                        "a timeline. FALSE for definitions, clarifications, doubt-clearing, opinions, comparisons "
+                        "in prose, short factual or yes/no answers, and simple lists. When unsure, choose false."
+                    )
                 },
                 "mermaid": {
                     "type": "string",
@@ -169,10 +218,13 @@ def generate_diagram(question: str, answer: str) -> dict:
                 {
                     "role": "system",
                     "content": (
-                        "You turn explanations into diagrams. Given a question and its answer, decide if a "
-                        "Mermaid diagram would substantially help understanding. Only produce one for genuinely "
-                        "structural/relational/sequential content — not for simple facts. Output valid, minimal "
-                        "Mermaid with short labels. Avoid parentheses and special characters inside node text."
+                        "You decide whether an explanation needs a diagram, and you are conservative — most "
+                        "answers do NOT need one. Only produce a Mermaid diagram when the answer explains a "
+                        "genuine flow/process, a sequence of steps, a system architecture, how parts relate, a "
+                        "hierarchy, or a timeline. Do NOT diagram definitions, clarifications, doubt-clearing, "
+                        "opinions, short factual/yes-no answers, or simple lists — return needs_diagram=false for "
+                        "those. When in doubt, return false. If you do make one, output valid, minimal Mermaid "
+                        "with short labels; avoid parentheses and special characters inside node text."
                     ),
                 },
                 {"role": "user", "content": f"Question:\n{question}\n\nAnswer:\n{answer[:2500]}"},
@@ -221,6 +273,80 @@ def summarize_source(filename: str, chunks: list) -> str:
         return ""
 
 
+def _sample_text(chunks: list, limit: int = 8000) -> str:
+    return "\n\n".join(c["text"] for c in chunks)[:limit]
+
+
+INTRO_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "provide_intro",
+        "description": "Introduce a newly added source with a tiny gist and a few things the user might want.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "idea": {"type": "string", "description": "2-3 short sentences: what this source is about. No long summary."},
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "3-4 concrete things the user might want to do/learn with this source, phrased as the user would ask them."
+                }
+            },
+            "required": ["idea", "options"]
+        }
+    }
+}
+
+
+def generate_intro(filename: str, chunks: list) -> dict:
+    """First source: a tiny idea of the doc + a few 'how can I help' options."""
+    try:
+        resp = client.chat.completions.create(
+            model=DEPLOYMENT,
+            messages=[
+                {"role": "system", "content": (
+                    AGENT_PERSONA + "\n\nA user just added their first source. Give only a TINY idea of what it "
+                    "covers (2-3 sentences, no long summary), then propose 3-4 concrete things they might want to "
+                    "do with it (phrased as the user would ask). Keep it warm and short."
+                )},
+                {"role": "user", "content": f"Source: {filename}\n\n{_sample_text(chunks)}"},
+            ],
+            tools=[INTRO_TOOL],
+            tool_choice={"type": "function", "function": {"name": "provide_intro"}},
+            max_completion_tokens=400,
+            temperature=0.4,
+        )
+        args = json.loads(resp.choices[0].message.tool_calls[0].function.arguments)
+        idea = (args.get("idea") or "").strip()
+        options = [s.strip() for s in (args.get("options") or []) if isinstance(s, str) and s.strip()][:4]
+        return {"idea": idea, "options": options}
+    except Exception as e:
+        app.logger.warning(f"[Intro] failed for '{filename}': {e}")
+        return {"idea": "", "options": []}
+
+
+def generate_ack(filename: str, chunks: list, context: dict) -> str:
+    """Later source: a short acknowledgment tied to the user's goal (no long summary)."""
+    try:
+        resp = client.chat.completions.create(
+            model=DEPLOYMENT,
+            messages=[
+                {"role": "system", "content": (
+                    AGENT_PERSONA + _context_block(context) + "\n\nThe user just added another source. In 1-2 short "
+                    "sentences, acknowledge it and say briefly what it adds and how it helps their goal. Do NOT write "
+                    "a full summary."
+                )},
+                {"role": "user", "content": f"New source: {filename}\n\n{_sample_text(chunks, 4000)}"},
+            ],
+            max_completion_tokens=160,
+            temperature=0.4,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        app.logger.warning(f"[Ack] failed for '{filename}': {e}")
+        return ""
+
+
 def generate_title(text: str) -> str:
     """Concise 3-6 word title from some text."""
     try:
@@ -239,25 +365,234 @@ def generate_title(text: str) -> str:
 
 
 def summarize_and_save(session_id: str, filename: str, chunks: list, visuals: bool = True) -> dict:
-    """Summarize a newly added source, optionally add a diagram, and save it as a
-    chat message. Sets the session title from the first source. Returns the saved
-    summary payload (or None if summarization produced nothing)."""
+    """On the FIRST source: post a tiny idea + 'how can I help' options and title the session.
+    On LATER sources: post a short acknowledgment tied to the user's goal. No long summaries."""
     is_first = db.is_first_message(session_id)
-    summary = summarize_source(filename, chunks)
-    if not summary:
-        return None
-    diagram = generate_diagram(f"Overview of {filename}", summary) if visuals else None
-    db.save_message(session_id, "model", [{"text": summary}], diagram=diagram)
 
-    result = {"role": "model", "text": summary, "diagram": diagram}
     if is_first:
-        title = generate_title(summary) or filename
+        intro = generate_intro(filename, chunks)
+        idea = intro["idea"]
+        if not idea:
+            return None
+        text = f"{idea}\n\nHow can I help you with this?"
+        options = intro["options"]
+        db.save_message(session_id, "model", [{"text": text}], follow_ups=options or None)
+        title = generate_title(idea) or filename
         db.update_session_title(session_id, title)
-        result["session_title"] = title
-    app.logger.info(f"[Summary] Saved summary for '{filename}' in session {session_id[:8]}… (first={is_first})")
-    return result
+        app.logger.info(f"[Intro] Onboarded session {session_id[:8]}… from '{filename}'")
+        return {"role": "model", "text": text, "follow_ups": options, "session_title": title}
+
+    context = db.get_session_context(session_id)
+    ack = generate_ack(filename, chunks, context)
+    if not ack:
+        ack = f"Added **{filename}** — I'll use it alongside your other sources."
+    db.save_message(session_id, "model", [{"text": ack}])
+    app.logger.info(f"[Ack] Acknowledged new source '{filename}' in session {session_id[:8]}…")
+    return {"role": "model", "text": ack}
 
 # ─── Chat ─────────────────────────────────────────────────────────────────────
+
+NOT_FOUND_MSG = "I couldn't find anything relevant in your uploaded documents or links to answer that."
+
+PLAN_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "provide_plan",
+        "description": "Plan the next move before answering: a brief thought and any sources to pull in.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "thought": {
+                    "type": "string",
+                    "description": "ONE short first-person sentence (max ~18 words) describing what you're about to do, e.g. 'Let me check your sources for how partitions work.'"
+                },
+                "auto_import": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string"},
+                            "title": {"type": "string"}
+                        },
+                        "required": ["url", "title"]
+                    },
+                    "description": "Up to 2 real, canonical http(s) URLs that would clearly help the user's current goal and are NOT already sources. Empty unless genuinely needed. Never invent URLs."
+                }
+            },
+            "required": ["thought", "auto_import"]
+        }
+    }
+}
+
+
+def _merge_session_update(context: dict, update: dict) -> dict:
+    if not isinstance(update, dict):
+        return context
+    for k in ("purpose", "expectations", "current_topic", "next_step", "example_domain"):
+        v = update.get(k)
+        if isinstance(v, str) and v.strip():
+            context[k] = v.strip()
+    if update.get("covered_add"):
+        covered = context.get("covered", [])
+        for c in update["covered_add"]:
+            if isinstance(c, str) and c.strip() and c not in covered:
+                covered.append(c.strip())
+        context["covered"] = covered[-30:]
+    if update.get("interests"):
+        ints = context.get("interests", [])
+        for c in update["interests"]:
+            if isinstance(c, str) and c.strip() and c not in ints:
+                ints.append(c.strip())
+        context["interests"] = ints[-20:]
+    return context
+
+
+def _history_messages(history: list) -> list:
+    msgs = []
+    for msg in history:
+        role = "assistant" if msg.get("role") == "model" else "user"
+        for part in msg.get("parts", []):
+            if "text" in part and part["text"]:
+                msgs.append({"role": role, "content": part["text"]})
+                break
+    return msgs
+
+
+def retrieve_chunks(user_message: str, history: list, session_id: str) -> list:
+    if not session_id:
+        return []
+    chunks = advanced_search(user_message, history=history, session_id=session_id)
+    app.logger.info(f"[Request] Retrieved {len(chunks)} chunks from advanced_search")
+    return chunks
+
+
+def plan_actions(user_message: str, history: list, context: dict, existing_names: set) -> dict:
+    """Quick planning call: a first-person thought + any links worth pulling in now."""
+    try:
+        sys = (
+            AGENT_PERSONA + _context_block(context) + "\n\n"
+            "You are about to help the user. In 'thought', write ONE short first-person sentence about what "
+            "you'll do next. In 'auto_import', include up to 2 canonical URLs that would clearly help the "
+            "user's CURRENT goal and are not already among their sources. "
+            f"Current sources: {sorted(existing_names) if existing_names else 'none'}."
+        )
+        messages = [{"role": "system", "content": sys}] + _history_messages(history) + [
+            {"role": "user", "content": user_message}
+        ]
+        resp = client.chat.completions.create(
+            model=DEPLOYMENT,
+            messages=messages,
+            tools=[PLAN_TOOL],
+            tool_choice={"type": "function", "function": {"name": "provide_plan"}},
+            max_completion_tokens=250,
+            temperature=0.4,
+        )
+        args = json.loads(resp.choices[0].message.tool_calls[0].function.arguments)
+        thought = (args.get("thought") or "").strip()
+        imports = []
+        seen = set()
+        for link in (args.get("auto_import") or []):
+            if not isinstance(link, dict):
+                continue
+            url = (link.get("url") or "").strip()
+            title = (link.get("title") or "").strip() or url
+            name = source_name_for_url(url) if url else ""
+            if url.lower().startswith(("http://", "https://")) and name not in existing_names and url not in seen:
+                seen.add(url)
+                imports.append({"url": url, "title": title})
+        return {"thought": thought, "auto_import": imports[:2]}
+    except Exception as e:
+        app.logger.warning(f"[Plan] failed: {e}")
+        return {"thought": "", "auto_import": []}
+
+
+def compose_answer(user_message: str, history: list, retrieved_chunks: list, session_id: str, context: dict):
+    """Grounded answer call. Returns (structured, session_update)."""
+    grounded_mode = bool(session_id)
+
+    if retrieved_chunks:
+        def _chunk_header(i, c):
+            meta = c["metadata"]
+            page = "" if meta["page"] == "N/A" else f", p.{meta['page']}"
+            return f"[{i+1}] {meta['filename']} (part {meta['chunk_id']+1}{page})"
+        context_text = "\n\n".join(
+            f"{_chunk_header(i, c)}\n{c['text']}" for i, c in enumerate(retrieved_chunks)
+        )
+    else:
+        context_text = "(no sources were retrieved)"
+
+    system_prompt = (
+        AGENT_PERSONA + _context_block(context) + "\n\n"
+        "GROUNDING RULES (strict): Answer the user's question using ONLY the numbered context sources "
+        "below. Do NOT use outside or prior knowledge in your ANSWER, and do NOT answer general-knowledge "
+        "questions unless the answer is explicitly present in the context. "
+        f"If the answer is not contained in the context, set 'answer' to exactly: \"{NOT_FOUND_MSG}\" "
+        "and set source_indices to an empty list — but you may still use follow_ups and suggested_links "
+        "to help the user find or add the right sources. When you do answer from the context, list the "
+        "numbers of the sources you actually used in source_indices.\n"
+        "Also keep your session memory current via 'session_update'. "
+        "'suggested_links' may draw on your general knowledge of authoritative sources.\n\n"
+        "Context:\n" + context_text
+    )
+
+    openai_messages = [{"role": "system", "content": system_prompt}] + _history_messages(history) + [
+        {"role": "user", "content": user_message}
+    ]
+
+    response = client.chat.completions.create(
+        model=DEPLOYMENT,
+        messages=openai_messages,
+        tools=[ANSWER_TOOL],
+        tool_choice={"type": "function", "function": {"name": "provide_answer"}},
+        max_completion_tokens=1000,
+        temperature=0.7,
+    )
+    structured = json.loads(response.choices[0].message.tool_calls[0].function.arguments)
+
+    used_indices = structured.pop("source_indices", [])
+    follow_ups = [s.strip() for s in (structured.pop("follow_ups", None) or []) if isinstance(s, str) and s.strip()][:3]
+    session_update = structured.pop("session_update", None)
+
+    raw_links = structured.pop("suggested_links", None) or []
+    suggested_links, seen_urls = [], set()
+    for link in raw_links:
+        if not isinstance(link, dict):
+            continue
+        url = (link.get("url") or "").strip()
+        title = (link.get("title") or "").strip() or url
+        if url.lower().startswith(("http://", "https://")) and url not in seen_urls:
+            seen_urls.add(url)
+            suggested_links.append({"url": url, "title": title})
+    suggested_links = suggested_links[:4]
+    if session_id:
+        existing_names = set(list_documents(session_id))
+        suggested_links = [l for l in suggested_links if source_name_for_url(l["url"]) not in existing_names]
+
+    seen, unique_sources = set(), []
+    for idx in used_indices:
+        i = idx - 1
+        if i < 0 or i >= len(retrieved_chunks):
+            continue
+        meta = retrieved_chunks[i]["metadata"]
+        key = (meta["filename"], meta["page"]) if meta["page"] != "N/A" else (meta["filename"], meta["chunk_id"])
+        if key not in seen:
+            seen.add(key)
+            unique_sources.append({"filename": meta["filename"], "page": meta["page"], "chunk_id": meta["chunk_id"]})
+
+    structured["sources"] = unique_sources
+    structured["follow_ups"] = follow_ups
+    structured["suggested_links"] = suggested_links
+
+    if grounded_mode and not unique_sources:
+        structured["answer"] = NOT_FOUND_MSG
+        structured["confidence"] = 0.0
+        structured["sources"] = []
+
+    if EVALS_MODE and retrieved_chunks:
+        structured["contexts"] = [c["text"] for c in retrieved_chunks]
+
+    return structured, session_update
+
 
 @app.route('/api/get_response', methods=['POST'])
 def get_response():
@@ -271,177 +606,142 @@ def get_response():
 
     visuals = data.get('visuals', True)
     session_id = data.get('session_id')
-
+    history = data.get('history', [])
     app.logger.info(f"[Request] session={session_id}  visuals={visuals}  message='{user_message[:80]}'")
 
-    history = data.get('history', [])
-    system_prompt = AGENT_PERSONA + "\n\nAnswer from your general knowledge."
-
-    # Chat is always source-grounded (a session only exists once a source was added).
-    grounded_mode = bool(session_id)
-    NOT_FOUND_MSG = "I couldn't find anything relevant in your uploaded documents or links to answer that."
-
-    retrieved_chunks = []
-    if grounded_mode:
-        retrieved_chunks = advanced_search(user_message, history=history, session_id=session_id)
-        app.logger.info(f"[Request] Retrieved {len(retrieved_chunks)} chunks from advanced_search")
-
-        if retrieved_chunks:
-            def _chunk_header(i, c):
-                meta = c["metadata"]
-                page = "" if meta["page"] == "N/A" else f", p.{meta['page']}"
-                return f"[{i+1}] {meta['filename']} (part {meta['chunk_id']+1}{page})"
-            context = "\n\n".join(
-                f"{_chunk_header(i, c)}\n{c['text']}"
-                for i, c in enumerate(retrieved_chunks)
-            )
-        else:
-            context = "(no sources were retrieved)"
-
-        system_prompt = (
-            AGENT_PERSONA + "\n\n"
-            "GROUNDING RULES (strict): Answer the user's question using ONLY the numbered context sources "
-            "below. Do NOT use outside or prior knowledge in your ANSWER, and do NOT answer general-knowledge "
-            "questions unless the answer is explicitly present in the context. "
-            f"If the answer is not contained in the context, set 'answer' to exactly: \"{NOT_FOUND_MSG}\" "
-            "and set source_indices to an empty list — but you may still use follow_ups and suggested_links "
-            "to help the user find or add the right sources. When you do answer from the context, list the "
-            "numbers of the sources you actually used in source_indices.\n"
-            "Note: 'suggested_links' are recommendations of new pages to add — they may draw on your general "
-            "knowledge of authoritative sources even though your ANSWER must stay grounded in the context.\n\n"
-            "Context:\n" + context
-        )
-
-    openai_messages = [{"role": "system", "content": system_prompt}]
-    for msg in history:
-        role = "assistant" if msg.get("role") == "model" else "user"
-        for part in msg.get("parts", []):
-            if "text" in part and part["text"]:
-                openai_messages.append({"role": role, "content": part["text"]})
-                break
-
-    openai_messages.append({"role": "user", "content": user_message})
-
+    context = db.get_session_context(session_id) if session_id else {}
     is_first = session_id and db.is_first_message(session_id)
-
     if session_id:
         db.save_message(session_id, "user", [{"text": user_message}])
 
     try:
-        response = client.chat.completions.create(
-            model=DEPLOYMENT,
-            messages=openai_messages,
-            tools=[ANSWER_TOOL],
-            tool_choice={"type": "function", "function": {"name": "provide_answer"}},
-            max_completion_tokens=1000,
-            temperature=0.7,
-        )
-        tool_call = response.choices[0].message.tool_calls[0]
-        structured = json.loads(tool_call.function.arguments)
-        app.logger.info(f"[Request] LLM confidence={structured.get('confidence', '?')}  used_sources={structured.get('source_indices', [])}")
+        retrieved_chunks = retrieve_chunks(user_message, history, session_id)
+        structured, session_update = compose_answer(user_message, history, retrieved_chunks, session_id, context)
 
-        used_indices = structured.pop("source_indices", [])
-
-        # Agentic extras — sanitize follow_ups and suggested_links.
-        follow_ups = [s.strip() for s in (structured.pop("follow_ups", None) or []) if isinstance(s, str) and s.strip()][:3]
-        raw_links = structured.pop("suggested_links", None) or []
-        suggested_links = []
-        seen_urls = set()
-        for link in raw_links:
-            if not isinstance(link, dict):
-                continue
-            url = (link.get("url") or "").strip()
-            title = (link.get("title") or "").strip() or url
-            if url.lower().startswith(("http://", "https://")) and url not in seen_urls:
-                seen_urls.add(url)
-                suggested_links.append({"url": url, "title": title})
-        suggested_links = suggested_links[:4]
-
-        # Don't suggest sources the session already has (avoids bloat / repeats).
-        if session_id:
-            existing_names = set(list_documents(session_id))
-            suggested_links = [
-                l for l in suggested_links if source_name_for_url(l["url"]) not in existing_names
-            ]
-
-        seen = set()
-        unique_sources = []
-        for idx in used_indices:
-            i = idx - 1
-            if i < 0 or i >= len(retrieved_chunks):
-                continue
-            meta = retrieved_chunks[i]["metadata"]
-            key = (meta["filename"], meta["page"]) if meta["page"] != "N/A" else (meta["filename"], meta["chunk_id"])
-            if key not in seen:
-                seen.add(key)
-                unique_sources.append({
-                    "filename": meta["filename"],
-                    "page": meta["page"],
-                    "chunk_id": meta["chunk_id"],
-                })
-        structured["sources"] = unique_sources
-        structured["follow_ups"] = follow_ups
-        structured["suggested_links"] = suggested_links
-
-        # In grounded mode, refuse to answer from general knowledge: if the model
-        # cited no sources, it did not ground its answer in the provided documents.
-        if grounded_mode and not unique_sources:
-            app.logger.info("[Request] Grounded mode with no cited sources — returning not-found message")
-            structured["answer"] = NOT_FOUND_MSG
-            structured["confidence"] = 0.0
-            structured["sources"] = []
-
-        # Optional visual: a Mermaid diagram when it aids understanding.
-        diagram = None
-        if visuals and structured.get("sources"):
-            diagram = generate_diagram(user_message, structured["answer"])
+        diagram = generate_diagram(user_message, structured["answer"]) if (visuals and structured.get("sources")) else None
         structured["diagram"] = diagram
 
-        if EVALS_MODE and retrieved_chunks:
-            structured["contexts"] = [c["text"] for c in retrieved_chunks]
-
         if session_id:
+            if session_update:
+                db.update_session_context(session_id, _merge_session_update(context, session_update))
             db.save_message(
-                session_id, "model",
-                [{"text": structured["answer"]}],
+                session_id, "model", [{"text": structured["answer"]}],
                 confidence=structured.get("confidence"),
-                sources=unique_sources or None,
-                follow_ups=follow_ups or None,
-                suggested_links=suggested_links or None,
+                sources=structured.get("sources") or None,
+                follow_ups=structured.get("follow_ups") or None,
+                suggested_links=structured.get("suggested_links") or None,
                 diagram=diagram,
             )
-
-        if is_first and session_id:
-            try:
-                title_response = client.chat.completions.create(
-                    model=DEPLOYMENT,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": (
-                                "Generate a concise 3-6 word title that captures the topic of this conversation. "
-                                "Return ONLY the title — no quotes, no punctuation at the end."
-                            ),
-                        },
-                        {
-                            "role": "user",
-                            "content": f"User: {user_message}\nAssistant: {structured['answer'][:300]}",
-                        },
-                    ],
-                    max_completion_tokens=20,
-                    temperature=0.4,
-                )
-                title = title_response.choices[0].message.content.strip()
-                db.update_session_title(session_id, title)
-                structured["session_title"] = title
-                app.logger.info(f"[Session] Title set: '{title}'")
-            except Exception as e:
-                app.logger.warning(f"[Session] Title generation failed: {e}")
+            if is_first:
+                title = generate_title(f"User: {user_message}\nAssistant: {structured['answer'][:300]}")
+                if title:
+                    db.update_session_title(session_id, title)
+                    structured["session_title"] = title
 
         return jsonify(structured)
     except Exception as e:
         app.logger.error(f"OpenAI API error: {e}")
         return jsonify({"error": "Failed to get a response from the AI service."}), 500
+
+
+@app.route('/api/chat_stream', methods=['POST'])
+def chat_stream():
+    """Streaming agent: emits live 'thinking' steps, then the final structured answer (SSE)."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Request body must be JSON"}), 400
+    user_message = (data.get('message') or '').strip()
+    if not user_message:
+        return jsonify({"error": "message is required"}), 400
+    visuals = data.get('visuals', True)
+    session_id = data.get('session_id')
+    history = data.get('history', [])
+
+    def emit(kind, text=None, steps=None, **extra):
+        ev = {"type": kind}
+        if text is not None:
+            ev["text"] = text
+        if steps is not None:
+            ev["steps"] = steps
+        ev.update(extra)
+        return f"data: {json.dumps(ev)}\n\n"
+
+    def gen():
+        steps = []
+
+        def step(text):
+            steps.append(text)
+            return emit("step", text)
+
+        try:
+            context = db.get_session_context(session_id) if session_id else {}
+            is_first = session_id and db.is_first_message(session_id)
+            if session_id:
+                db.save_message(session_id, "user", [{"text": user_message}])
+
+            yield step("Understanding your question")
+
+            existing = set(list_documents(session_id)) if session_id else set()
+            plan = plan_actions(user_message, history, context, existing)
+            if plan.get("thought"):
+                yield step(plan["thought"])
+
+            added = []
+            for link in plan.get("auto_import", []):
+                name = source_name_for_url(link["url"])
+                if name in existing:
+                    continue
+                yield step(f"Sourcing “{link['title']}”")
+                try:
+                    _, chunks = extract_and_chunk_url(link["url"])
+                    if chunks:
+                        embed_and_store(chunks, name, session_id)
+                        existing.add(name)
+                        added.append(name)
+                except Exception:
+                    yield step(f"Couldn't fetch {link['title']}")
+            if added:
+                yield emit("sources_added", sources=added)
+
+            yield step("Searching your sources")
+            retrieved = retrieve_chunks(user_message, history, session_id)
+
+            yield step("Composing the answer")
+            structured, session_update = compose_answer(user_message, history, retrieved, session_id, context)
+
+            diagram = None
+            if visuals and structured.get("sources"):
+                yield step("Sketching a diagram")
+                diagram = generate_diagram(user_message, structured["answer"])
+            structured["diagram"] = diagram
+            structured["steps"] = steps
+
+            if session_id:
+                if session_update:
+                    context = _merge_session_update(context, session_update)
+                    db.update_session_context(session_id, context)
+                db.save_message(
+                    session_id, "model", [{"text": structured["answer"]}],
+                    confidence=structured.get("confidence"),
+                    sources=structured.get("sources") or None,
+                    follow_ups=structured.get("follow_ups") or None,
+                    suggested_links=structured.get("suggested_links") or None,
+                    diagram=diagram,
+                    steps=steps or None,
+                )
+                if is_first:
+                    title = generate_title(f"User: {user_message}\nAssistant: {structured['answer'][:300]}")
+                    if title:
+                        db.update_session_title(session_id, title)
+                        structured["session_title"] = title
+
+            yield emit("final", **structured)
+        except Exception as e:
+            app.logger.error(f"chat_stream error: {e}")
+            yield emit("error", text="Failed to get a response from the AI service.")
+
+    return Response(gen(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 # ─── Sessions ─────────────────────────────────────────────────────────────────
 
@@ -588,4 +888,4 @@ def delete_doc(filename):
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5000, threaded=True)
