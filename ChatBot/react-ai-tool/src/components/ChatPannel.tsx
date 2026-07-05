@@ -5,15 +5,13 @@ import { ChatTypeEnum, RoleEnum, type IChatMessage, type IChatTypes, type IRoleT
 import { Copy, CopyCheck, BookText, ChevronDown, FileText, Check, Sparkles } from "lucide-react";
 import MermaidDiagram from "./MermaidDiagram";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL;
-
 // Playful, Claude-Code-style status verbs shown while the agent responds.
 const THINKING_VERBS = [
   "Cooking", "Brewing", "Roasting", "Pondering", "Simmering", "Percolating",
   "Marinating", "Crunching", "Noodling", "Untangling", "Distilling", "Mulling",
 ];
 
-const ThinkingIndicator: React.FC<{ steps: string[] }> = ({ steps }) => {
+const ThinkingIndicator: React.FC<{ steps: string[]; label?: string }> = ({ steps, label }) => {
   const [i, setI] = React.useState(() => Math.floor(Math.random() * THINKING_VERBS.length));
   React.useEffect(() => {
     const id = setInterval(() => setI((v) => (v + 1) % THINKING_VERBS.length), 1600);
@@ -28,7 +26,7 @@ const ThinkingIndicator: React.FC<{ steps: string[] }> = ({ steps }) => {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/50" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
           </span>
-          <span className="font-medium text-foreground/90 animate-pulse">{THINKING_VERBS[i]}…</span>
+          <span className="font-medium text-foreground/90 animate-pulse">{label ?? `${THINKING_VERBS[i]}…`}</span>
         </div>
       </div>
     );
@@ -89,6 +87,7 @@ interface IChatPannel {
   scrollToAns: React.RefObject<HTMLDivElement>;
   onFollowUp: (text: string) => void;
   isLoading: boolean;
+  ingesting?: boolean;
   liveSteps: string[];
 }
 
@@ -290,7 +289,7 @@ const MessageBubble: React.FC<{
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, onFollowUp, isLoading, liveSteps }) => {
+const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, onFollowUp, isLoading, ingesting, liveSteps }) => {
   const messageList = useMemo(() => flattenMessages(chatMessages), [chatMessages]);
 
   return (
@@ -306,7 +305,7 @@ const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, onFollow
             onFollowUp={onFollowUp}
           />
         ))}
-        {isLoading && <ThinkingIndicator steps={liveSteps} />}
+        {isLoading && <ThinkingIndicator steps={liveSteps} label={ingesting ? "Reading your source…" : undefined} />}
       </div>
     </div>
   );

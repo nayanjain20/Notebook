@@ -45,6 +45,7 @@ function App() {
   const [hasDocs, setHasDocs] = React.useState(false);
   const [docsRefresh, setDocsRefresh] = React.useState(0);
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
+  const [ingesting, setIngesting] = React.useState(false);
   // Draft mode: an empty new-chat state before a source (and session) exist.
   const [isDrafting, setIsDrafting] = React.useState(true);
   const [activeSession, setActiveSession] = React.useState<ISession | null>(null);
@@ -120,6 +121,7 @@ function App() {
   // Called after any source is added — refresh the sidebar list and reload
   // messages so the freshly generated summary appears in the chat.
   const handleSourceAdded = React.useCallback((sid: string) => {
+    setIngesting(false);
     setDocsRefresh((v) => v + 1);
     if (sid) refreshMessages(sid);
   }, [refreshMessages]);
@@ -158,14 +160,23 @@ function App() {
         {noSessionSelected ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
             <span className="font-serif text-3xl text-foreground/80">Notebook</span>
-            {isDrafting ? (
+            {ingesting ? (
+              <div className="inline-flex items-center gap-2.5 text-sm">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/50" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+                </span>
+                <span className="font-medium text-foreground/90 animate-pulse">Reading your source…</span>
+              </div>
+            ) : isDrafting ? (
               <>
                 <p className="text-sm text-muted-foreground max-w-sm">
-                  Add a document or link to start. Notebook will summarize it, then you can chat and get visual explanations.
+                  Add a document or link to start. Notebook will read it, then help you learn it step by step.
                 </p>
                 <AddSourceMenu
                   ensureSession={ensureSession}
                   onSourceAdded={handleSourceAdded}
+                  onSourceAddStart={() => setIngesting(true)}
                   visuals={visuals}
                   variant="cta"
                 />
@@ -179,7 +190,8 @@ function App() {
             chatMessages={messages}
             scrollToAns={scrollToAns}
             onFollowUp={(t) => onPrompt(t)}
-            isLoading={isLoading}
+            isLoading={isLoading || ingesting}
+            ingesting={ingesting}
             liveSteps={liveSteps}
           />
         )}
@@ -198,9 +210,16 @@ function App() {
 
           {/* Input */}
           <div
-            className={`bg-card w-[min(42rem,90%)] text-foreground rounded-2xl border flex items-center gap-1 px-4 py-2 h-14 transition-colors shadow-sm
+            className={`bg-card w-[min(42rem,90%)] text-foreground rounded-2xl border flex items-center gap-1 px-2 py-2 h-14 transition-colors shadow-sm
               ${canChat ? "border-border focus-within:border-ring" : "border-border opacity-50"}`}
           >
+            <AddSourceMenu
+              ensureSession={ensureSession}
+              onSourceAdded={handleSourceAdded}
+              onSourceAddStart={() => setIngesting(true)}
+              visuals={visuals}
+              disabled={!activeSession}
+            />
             <input
               ref={inputRef}
               autoFocus

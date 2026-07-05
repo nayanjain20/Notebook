@@ -168,10 +168,11 @@ DIAGRAM_TOOL = {
                 "needs_diagram": {
                     "type": "boolean",
                     "description": (
-                        "True ONLY if the answer explains something inherently visual/structural: a process or "
-                        "flow, a sequence of steps, a system architecture, how components relate, a hierarchy, or "
-                        "a timeline. FALSE for definitions, clarifications, doubt-clearing, opinions, comparisons "
-                        "in prose, short factual or yes/no answers, and simple lists. When unsure, choose false."
+                        "True ONLY if the answer is fundamentally about how things RELATE or CONNECT: a system "
+                        "architecture, how components interact, an entity/relationship, or a hierarchy — where a "
+                        "box-and-arrow picture reveals structure words cannot. FALSE for everything else, including "
+                        "lists of steps, how-tos, procedures, definitions, clarifications, comparisons, opinions, "
+                        "and simple explanations. Most answers are FALSE. When unsure, choose false."
                     )
                 },
                 "mermaid": {
@@ -209,8 +210,16 @@ def _clean_mermaid(text: str) -> str:
     return text if first in _MERMAID_STARTERS else ""
 
 
-def generate_diagram(question: str, answer: str) -> dict:
+def generate_diagram(question: str, answer: str, example_domain: str = None) -> dict:
     """Secondary LLM call: returns {mermaid, caption} when a diagram helps, else None."""
+    example_hint = ""
+    if example_domain:
+        example_hint = (
+            f" A running example is in play for this session: \"{example_domain}\". If you draw a diagram, you may "
+            "make it EITHER a technical diagram of the concept OR a diagram of the example itself (whichever teaches "
+            "better) — and label nodes using the example's concrete terms so the picture matches the explanation "
+            f"(e.g. for a library example, nodes like 'Science section (topic)', 'Journal shelf (partition)')."
+        )
     try:
         response = client.chat.completions.create(
             model=DEPLOYMENT,
@@ -218,13 +227,14 @@ def generate_diagram(question: str, answer: str) -> dict:
                 {
                     "role": "system",
                     "content": (
-                        "You decide whether an explanation needs a diagram, and you are conservative — most "
-                        "answers do NOT need one. Only produce a Mermaid diagram when the answer explains a "
-                        "genuine flow/process, a sequence of steps, a system architecture, how parts relate, a "
-                        "hierarchy, or a timeline. Do NOT diagram definitions, clarifications, doubt-clearing, "
-                        "opinions, short factual/yes-no answers, or simple lists — return needs_diagram=false for "
-                        "those. When in doubt, return false. If you do make one, output valid, minimal Mermaid "
-                        "with short labels; avoid parentheses and special characters inside node text."
+                        "You decide whether an explanation needs a diagram, and you are VERY conservative — the "
+                        "large majority of answers need NO diagram. Only produce a Mermaid diagram when the answer "
+                        "is fundamentally about how things RELATE or CONNECT: a system architecture, how components "
+                        "interact, an entity/relationship, or a hierarchy. Do NOT diagram lists of steps, how-tos, "
+                        "procedures, definitions, clarifications, comparisons, opinions, or simple explanations — "
+                        "return needs_diagram=false for those. A list of steps is NOT a reason to draw a diagram. "
+                        "When in doubt, return false. If you do make one, output valid, minimal Mermaid with short "
+                        "labels; avoid parentheses and special characters inside node text." + example_hint
                     ),
                 },
                 {"role": "user", "content": f"Question:\n{question}\n\nAnswer:\n{answer[:2500]}"},
@@ -466,6 +476,111 @@ def retrieve_chunks(user_message: str, history: list, session_id: str) -> list:
     return chunks
 
 
+def _merge_chunks(existing: list, new: list) -> list:
+    """Merge retrieved chunk lists, de-duplicating by chunk id."""
+    seen = {c["id"] for c in existing}
+    for c in new:
+        if c["id"] not in seen:
+            seen.add(c["id"])
+            existing.append(c)
+    return existing
+
+
+def _chunks_digest(chunks: list, limit: int = 8) -> str:
+    """A compact view of gathered context for the reflection call."""
+    if not chunks:
+        return "(nothing retrieved yet)"
+    lines = []
+    for i, c in enumerate(chunks[:limit], 1):
+        snippet = " ".join(c["text"].split())[:180]
+        lines.append(f"[{i}] {c['metadata']['filename']}: {snippet}")
+    if len(chunks) > limit:
+        lines.append(f"…and {len(chunks) - limit} more passages")
+    return "\n".join(lines)
+
+
+REFLECT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "decide_next_action",
+        "description": "As an autonomous learning agent, decide the single next action before answering.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "thought": {
+                    "type": "string",
+                    "description": "ONE short first-person sentence for the user's thought-process trace, e.g. 'The sources cover this — let me explain.' or 'I need the official docs for the exact APIs.'"
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["answer", "search_more", "fetch_source", "clarify"],
+                    "description": (
+                        "answer = you have enough to give a good, grounded answer now. "
+                        "search_more = the gathered context is insufficient; search the sources again with a better query. "
+                        "fetch_source = a specific authoritative page is needed and is NOT already a source; fetch it. "
+                        "clarify = the user's request is genuinely ambiguous and you must ask ONE short question first."
+                    )
+                },
+                "query": {"type": "string", "description": "For search_more: a focused search query."},
+                "url": {"type": "string", "description": "For fetch_source: a real, canonical http(s) URL. Never invent URLs."},
+                "title": {"type": "string", "description": "For fetch_source: a short label for the URL."},
+                "question": {"type": "string", "description": "For clarify: ONE short question to ask the user."}
+            },
+            "required": ["thought", "action"]
+        }
+    }
+}
+
+
+def agent_reflect(user_message, history, context, chunks, existing_names, iteration, max_iterations):
+    """Decide the next agent action given what has been gathered so far."""
+    try:
+        sys = (
+            AGENT_PERSONA + _context_block(context) + "\n\n"
+            "You are an autonomous learning agent. You have gathered some context from the user's sources (below). "
+            "Decide the SINGLE next action to produce the BEST possible answer — not merely an acceptable one. "
+            "Do NOT settle just because you found something relevant: the user's current source may be surface-level "
+            "while a dedicated/linked resource holds far richer material. Ask yourself 'what would make this answer "
+            "genuinely excellent?' and act on it:\n"
+            "- 'search_more' if the passages are thin or off-target (give a sharper query).\n"
+            "- 'fetch_source' if a specific canonical page (e.g. official docs, a dedicated guide) would give "
+            "materially deeper/better material than what's retrieved and isn't already a source. Prefer this over "
+            "answering from shallow context. Never invent URLs.\n"
+            "- 'clarify' ONLY if the request is genuinely ambiguous and you truly cannot proceed without one short "
+            "question.\n"
+            "- 'answer' when you have rich, sufficient material to teach this well.\n"
+            f"This is reflection step {iteration} of at most {max_iterations}. If near the limit, answer.\n"
+            f"Current sources: {sorted(existing_names) if existing_names else 'none'}.\n\n"
+            f"Gathered context:\n{_chunks_digest(chunks)}"
+        )
+        messages = [{"role": "system", "content": sys}] + _history_messages(history) + [
+            {"role": "user", "content": user_message}
+        ]
+        resp = client.chat.completions.create(
+            model=DEPLOYMENT,
+            messages=messages,
+            tools=[REFLECT_TOOL],
+            tool_choice={"type": "function", "function": {"name": "decide_next_action"}},
+            max_completion_tokens=250,
+            temperature=0.3,
+        )
+        args = json.loads(resp.choices[0].message.tool_calls[0].function.arguments)
+        action = args.get("action", "answer")
+        if action not in ("answer", "search_more", "fetch_source", "clarify"):
+            action = "answer"
+        return {
+            "action": action,
+            "thought": (args.get("thought") or "").strip(),
+            "query": (args.get("query") or "").strip(),
+            "url": (args.get("url") or "").strip(),
+            "title": (args.get("title") or "").strip(),
+            "question": (args.get("question") or "").strip(),
+        }
+    except Exception as e:
+        app.logger.warning(f"[Reflect] failed: {e}")
+        return {"action": "answer", "thought": "", "query": "", "url": "", "title": "", "question": ""}
+
+
 def plan_actions(user_message: str, history: list, context: dict, existing_names: set) -> dict:
     """Quick planning call: a first-person thought + any links worth pulling in now."""
     try:
@@ -521,16 +636,37 @@ def compose_answer(user_message: str, history: list, retrieved_chunks: list, ses
     else:
         context_text = "(no sources were retrieved)"
 
+    example_line = ""
+    if context.get("example_domain"):
+        example_line = (
+            f"IMPORTANT — teaching example: You are using a consistent running example this session: "
+            f"\"{context['example_domain']}\". Whenever you EXPLAIN a concept, illustrate it with THIS same "
+            "example. Make the mapping SPECIFIC and well-chosen, not generic: pick concrete instances within the "
+            "example and map each technical part to a precise counterpart (e.g. if the example is a library and the "
+            "topic is data partitioning, say something like 'the science-journals section is a topic, and each "
+            "individual journal gets its own shelf — that shelf is a partition'). Avoid vague one-liners; make the "
+            "analogy actually teach the mechanism. Do not switch examples unless the user asks.\n"
+        )
+    else:
+        example_line = (
+            "IMPORTANT — teaching example: Whenever you EXPLAIN a concept, include at least one concrete, "
+            "SPECIFIC example or analogy that maps each key part of the concept to a precise counterpart (not a "
+            "vague one-liner — make the mapping teach the mechanism). Pick a single relatable example domain and "
+            "set it in session_update.example_domain so you reuse the SAME example for later concepts.\n"
+        )
+
     system_prompt = (
         AGENT_PERSONA + _context_block(context) + "\n\n"
+        + example_line +
         "GROUNDING RULES (strict): Answer the user's question using ONLY the numbered context sources "
-        "below. Do NOT use outside or prior knowledge in your ANSWER, and do NOT answer general-knowledge "
-        "questions unless the answer is explicitly present in the context. "
+        "below. Do NOT use outside or prior knowledge for the FACTS in your ANSWER, and do NOT answer "
+        "general-knowledge questions unless the answer is explicitly present in the context. (Everyday "
+        "examples/analogies you use to illustrate are fine — they don't need to come from the sources.) "
         f"If the answer is not contained in the context, set 'answer' to exactly: \"{NOT_FOUND_MSG}\" "
         "and set source_indices to an empty list — but you may still use follow_ups and suggested_links "
         "to help the user find or add the right sources. When you do answer from the context, list the "
         "numbers of the sources you actually used in source_indices.\n"
-        "Also keep your session memory current via 'session_update'. "
+        "Also keep your session memory current via 'session_update' (including example_domain). "
         "'suggested_links' may draw on your general knowledge of authoritative sources.\n\n"
         "Context:\n" + context_text
     )
@@ -594,9 +730,69 @@ def compose_answer(user_message: str, history: list, retrieved_chunks: list, ses
     return structured, session_update
 
 
-@app.route('/api/get_response', methods=['POST'])
-def get_response():
-    data = request.get_json()
+CRITIQUE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "critique_answer",
+        "description": "Judge whether a drafted answer is high-quality, and if not, how to improve it.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "good_enough": {
+                    "type": "boolean",
+                    "description": "True if the draft genuinely helps the user learn: accurate, clear, well-grounded, with a concrete specific example where a concept is explained, and no obvious gaps. False if it is shallow, vague, generic, or misses depth the user likely wants."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "ONE short first-person sentence for the thought trace on what to improve (only if not good enough), e.g. 'The example is too generic — let me make the mapping concrete.'"
+                },
+                "needs_deeper_source": {
+                    "type": "boolean",
+                    "description": "True if a dedicated/authoritative page (deeper than what's currently retrieved) would materially improve the answer."
+                },
+                "fetch_url": {"type": "string", "description": "If needs_deeper_source: a real, canonical http(s) URL to fetch. Never invent URLs."},
+                "fetch_title": {"type": "string", "description": "Short label for fetch_url."},
+                "better_query": {"type": "string", "description": "If more retrieval from existing sources would help: a focused search query."}
+            },
+            "required": ["good_enough"]
+        }
+    }
+}
+
+
+def critique_answer(user_message, context, draft_answer, existing_names):
+    """Quality gate: judge the draft and suggest how to improve it."""
+    try:
+        sys = (
+            AGENT_PERSONA + _context_block(context) + "\n\n"
+            "You are the quality reviewer for a learning agent. Judge the DRAFT answer below by one standard: does "
+            "it give the user the BEST possible understanding? Be demanding about depth and about examples — a good "
+            "answer explains the mechanism and, when explaining a concept, includes a SPECIFIC, well-mapped example "
+            "(not a vague one-liner). If a dedicated/authoritative source would make it materially better than the "
+            "current surface-level material, say so via needs_deeper_source (with a real canonical URL). "
+            f"Current sources: {sorted(existing_names) if existing_names else 'none'}.\n\n"
+            f"User asked:\n{user_message}\n\nDRAFT answer:\n{draft_answer[:2500]}"
+        )
+        resp = client.chat.completions.create(
+            model=DEPLOYMENT,
+            messages=[{"role": "system", "content": sys}],
+            tools=[CRITIQUE_TOOL],
+            tool_choice={"type": "function", "function": {"name": "critique_answer"}},
+            max_completion_tokens=250,
+            temperature=0.2,
+        )
+        args = json.loads(resp.choices[0].message.tool_calls[0].function.arguments)
+        return {
+            "good_enough": bool(args.get("good_enough", True)),
+            "reason": (args.get("reason") or "").strip(),
+            "needs_deeper_source": bool(args.get("needs_deeper_source", False)),
+            "fetch_url": (args.get("fetch_url") or "").strip(),
+            "fetch_title": (args.get("fetch_title") or "").strip(),
+            "better_query": (args.get("better_query") or "").strip(),
+        }
+    except Exception as e:
+        app.logger.warning(f"[Critique] failed: {e}")
+        return {"good_enough": True, "reason": "", "needs_deeper_source": False, "fetch_url": "", "fetch_title": "", "better_query": ""}
     if not data:
         return jsonify({"error": "Request body must be JSON"}), 400
 
@@ -682,37 +878,122 @@ def chat_stream():
             yield step("Understanding your question")
 
             existing = set(list_documents(session_id)) if session_id else set()
-            plan = plan_actions(user_message, history, context, existing)
-            if plan.get("thought"):
-                yield step(plan["thought"])
-
             added = []
-            for link in plan.get("auto_import", []):
-                name = source_name_for_url(link["url"])
-                if name in existing:
-                    continue
-                yield step(f"Sourcing “{link['title']}”")
-                try:
-                    _, chunks = extract_and_chunk_url(link["url"])
-                    if chunks:
-                        embed_and_store(chunks, name, session_id)
-                        existing.add(name)
-                        added.append(name)
-                except Exception:
-                    yield step(f"Couldn't fetch {link['title']}")
-            if added:
-                yield emit("sources_added", sources=added)
 
-            yield step("Searching your sources")
-            retrieved = retrieve_chunks(user_message, history, session_id)
+            # Initial retrieval, then an agentic reflect loop: the agent may search
+            # again, fetch a new source, ask a clarifying question, or answer.
+            chunks = retrieve_chunks(user_message, history, session_id)
+
+            MAX_ITERS = 3
+            clarify_question = None
+            for iteration in range(1, MAX_ITERS + 1):
+                decision = agent_reflect(user_message, history, context, chunks, existing, iteration, MAX_ITERS)
+                if decision["thought"]:
+                    yield step(decision["thought"])
+                action = decision["action"]
+
+                if action == "answer":
+                    break
+
+                elif action == "clarify" and decision["question"] and iteration < MAX_ITERS:
+                    clarify_question = decision["question"]
+                    break
+
+                elif action == "search_more":
+                    q = decision["query"] or user_message
+                    yield step(f"Searching again: {q[:60]}")
+                    chunks = _merge_chunks(chunks, retrieve_chunks(q, history, session_id))
+
+                elif action == "fetch_source" and decision["url"].lower().startswith(("http://", "https://")):
+                    name = source_name_for_url(decision["url"])
+                    if name in existing:
+                        continue
+                    label = decision["title"] or decision["url"]
+                    yield step(f"Sourcing “{label}”")
+                    try:
+                        _, new_chunks = extract_and_chunk_url(decision["url"])
+                        if new_chunks:
+                            embed_and_store(new_chunks, name, session_id)
+                            existing.add(name)
+                            added.append(name)
+                            chunks = _merge_chunks(chunks, retrieve_chunks(user_message, history, session_id))
+                    except Exception:
+                        yield step(f"Couldn't fetch {label}")
+                else:
+                    break
+
+            # If the agent needs clarification, ask it as the reply and stop here.
+            if clarify_question:
+                if added:
+                    yield emit("sources_added", sources=added)
+                structured = {
+                    "answer": clarify_question,
+                    "confidence": 1.0,
+                    "sources": [],
+                    "follow_ups": [],
+                    "suggested_links": [],
+                    "diagram": None,
+                    "steps": steps,
+                }
+                if session_id:
+                    db.save_message(session_id, "model", [{"text": clarify_question}], steps=steps or None)
+                    if is_first:
+                        title = generate_title(f"User: {user_message}\nAssistant: {clarify_question[:200]}")
+                        if title:
+                            db.update_session_title(session_id, title)
+                            structured["session_title"] = title
+                yield emit("final", **structured)
+                return
 
             yield step("Composing the answer")
-            structured, session_update = compose_answer(user_message, history, retrieved, session_id, context)
+            structured, session_update = compose_answer(user_message, history, chunks, session_id, context)
+
+            # Quality gate: critique the draft; if weak, gather more and re-compose (bounded).
+            MAX_REVISIONS = 2
+            for rev in range(MAX_REVISIONS):
+                if not structured.get("sources"):
+                    break  # not-found / ungrounded: nothing to improve by re-composing
+                verdict = critique_answer(user_message, context, structured["answer"], existing)
+                if verdict["good_enough"]:
+                    break
+                if verdict["reason"]:
+                    yield step(verdict["reason"])
+
+                improved = False
+                if verdict["needs_deeper_source"] and verdict["fetch_url"].lower().startswith(("http://", "https://")):
+                    name = source_name_for_url(verdict["fetch_url"])
+                    if name not in existing:
+                        label = verdict["fetch_title"] or verdict["fetch_url"]
+                        yield step(f"Sourcing “{label}” for depth")
+                        try:
+                            _, new_chunks = extract_and_chunk_url(verdict["fetch_url"])
+                            if new_chunks:
+                                embed_and_store(new_chunks, name, session_id)
+                                existing.add(name)
+                                added.append(name)
+                                improved = True
+                        except Exception:
+                            yield step(f"Couldn't fetch {label}")
+                if verdict["better_query"]:
+                    before = len(chunks)
+                    chunks = _merge_chunks(chunks, retrieve_chunks(verdict["better_query"], history, session_id))
+                    improved = improved or len(chunks) > before
+                elif improved:
+                    chunks = _merge_chunks(chunks, retrieve_chunks(user_message, history, session_id))
+
+                if not improved:
+                    break
+                yield step("Improving the answer")
+                structured, session_update = compose_answer(user_message, history, chunks, session_id, context)
+
+            if added:
+                yield emit("sources_added", sources=added)
 
             diagram = None
             if visuals and structured.get("sources"):
                 yield step("Sketching a diagram")
-                diagram = generate_diagram(user_message, structured["answer"])
+                example_domain = (session_update or {}).get("example_domain") or context.get("example_domain")
+                diagram = generate_diagram(user_message, structured["answer"], example_domain)
             structured["diagram"] = diagram
             structured["steps"] = steps
 
