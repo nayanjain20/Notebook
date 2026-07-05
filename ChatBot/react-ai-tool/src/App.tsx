@@ -1,6 +1,6 @@
 import React from "react";
 import "./App.css";
-import ChatPannel from "./components/ChatPannel";
+import ChatPanel from "./components/ChatPanel";
 import ChatHeader from "./components/ChatHeader";
 import FileUpload from "./components/FileUpload";
 import AddSourceMenu from "./components/AddSourceMenu";
@@ -186,7 +186,7 @@ function App() {
             )}
           </div>
         ) : (
-          <ChatPannel
+          <ChatPanel
             chatMessages={messages}
             scrollToAns={scrollToAns}
             onFollowUp={(t) => onPrompt(t)}

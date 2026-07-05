@@ -82,7 +82,7 @@ const ThoughtTrace: React.FC<{ steps: string[] }> = ({ steps }) => {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface IChatPannel {
+interface IChatPanel {
   chatMessages: IChatMessage[];
   scrollToAns: React.RefObject<HTMLDivElement>;
   onFollowUp: (text: string) => void;
@@ -289,7 +289,7 @@ const MessageBubble: React.FC<{
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, onFollowUp, isLoading, ingesting, liveSteps }) => {
+const ChatPanel: React.FC<IChatPanel> = ({ chatMessages, scrollToAns, onFollowUp, isLoading, ingesting, liveSteps }) => {
   const messageList = useMemo(() => flattenMessages(chatMessages), [chatMessages]);
 
   return (
@@ -311,4 +311,4 @@ const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, onFollow
   );
 };
 
-export default ChatPannel;
+export default ChatPanel;
