@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatTypeEnum, RoleEnum, type IChatMessage, type IChatTypes, type IRoleTypes } from "../App";
 import { Copy, CopyCheck, BookText, ChevronDown, FileText, Link as LinkIcon, Plus, Check, Loader, Sparkles } from "lucide-react";
+import MermaidDiagram from "./MermaidDiagram";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -12,7 +13,7 @@ const THINKING_VERBS = [
   "Marinating", "Crunching", "Noodling", "Untangling", "Distilling", "Mulling",
 ];
 
-const ThinkingIndicator: React.FC<{ useDocs: boolean }> = ({ useDocs }) => {
+const ThinkingIndicator: React.FC = () => {
   const [i, setI] = React.useState(() => Math.floor(Math.random() * THINKING_VERBS.length));
   React.useEffect(() => {
     const id = setInterval(() => setI((v) => (v + 1) % THINKING_VERBS.length), 1600);
@@ -27,9 +28,7 @@ const ThinkingIndicator: React.FC<{ useDocs: boolean }> = ({ useDocs }) => {
           <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
         </span>
         <span className="font-medium text-foreground/90 animate-pulse">{THINKING_VERBS[i]}…</span>
-        <span className="text-muted-foreground">
-          {useDocs ? "reading your sources" : "thinking it through"}
-        </span>
+        <span className="text-muted-foreground">reading your sources</span>
       </div>
     </div>
   );
@@ -42,10 +41,9 @@ interface IChatPannel {
   chatMessages: IChatMessage[];
   scrollToAns: React.RefObject<HTMLDivElement>;
   sessionId: string | null;
-  onSourceAdded: () => void;
+  onSourceAdded: (sessionId: string) => void;
   onFollowUp: (text: string) => void;
   isLoading: boolean;
-  useDocs: boolean;
 }
 
 interface IMessageBody {
@@ -58,6 +56,7 @@ interface IMessageBody {
   sources?: { filename: string; page: string; chunk_id: number }[];
   followUps?: string[];
   suggestedLinks?: { url: string; title: string }[];
+  diagram?: { mermaid: string; caption?: string } | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -76,6 +75,7 @@ function flattenMessages(chatMessages: IChatMessage[]): IMessageBody[] {
             sources: chat.sources,
             followUps: chat.follow_ups,
             suggestedLinks: chat.suggested_links,
+            diagram: chat.diagram,
           };
         if ("base64Image" in part)
           return { role: chat.role, type: ChatTypeEnum.Image, base64Image: part.base64Image };
@@ -156,7 +156,7 @@ const FollowUps: React.FC<{ items: string[]; onFollowUp: (t: string) => void }> 
 const SuggestedLinks: React.FC<{
   items: { url: string; title: string }[];
   sessionId: string | null;
-  onSourceAdded: () => void;
+  onSourceAdded: (sessionId: string) => void;
 }> = ({ items, sessionId, onSourceAdded }) => {
   const [status, setStatus] = React.useState<Record<string, "idle" | "adding" | "done" | "error">>({});
 
@@ -167,11 +167,11 @@ const SuggestedLinks: React.FC<{
       const res = await fetch(`${BASE_URL}/api/upload_url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, session_id: sessionId }),
+        body: JSON.stringify({ url, session_id: sessionId, visuals: true }),
       });
       if (!res.ok) throw new Error();
       setStatus((s) => ({ ...s, [url]: "done" }));
-      onSourceAdded();
+      onSourceAdded(sessionId);
     } catch {
       setStatus((s) => ({ ...s, [url]: "error" }));
     }
@@ -238,7 +238,7 @@ const SuggestedLinks: React.FC<{
 const MessageBubble: React.FC<{
   msg: IMessageBody;
   sessionId: string | null;
-  onSourceAdded: () => void;
+  onSourceAdded: (sessionId: string) => void;
   onFollowUp: (t: string) => void;
 }> = ({ msg, sessionId, onSourceAdded, onFollowUp }) => {
   const isUser = msg.role === RoleEnum.User;
@@ -273,6 +273,10 @@ const MessageBubble: React.FC<{
         <div className="md">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
         </div>
+
+        {msg.diagram?.mermaid && (
+          <MermaidDiagram chart={msg.diagram.mermaid} caption={msg.diagram.caption} />
+        )}
 
         {hasSources && (
           <div className="mt-3">
@@ -326,7 +330,7 @@ const MessageBubble: React.FC<{
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, sessionId, onSourceAdded, onFollowUp, isLoading, useDocs }) => {
+const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, sessionId, onSourceAdded, onFollowUp, isLoading }) => {
   const messageList = useMemo(() => flattenMessages(chatMessages), [chatMessages]);
 
   return (
@@ -344,7 +348,7 @@ const ChatPannel: React.FC<IChatPannel> = ({ chatMessages, scrollToAns, sessionI
             onFollowUp={onFollowUp}
           />
         ))}
-        {isLoading && <ThinkingIndicator useDocs={useDocs} />}
+        {isLoading && <ThinkingIndicator />}
       </div>
     </div>
   );

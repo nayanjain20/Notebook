@@ -21,6 +21,7 @@ export interface IChatMessage {
   sources?: { filename: string; page: string; chunk_id: number }[];
   follow_ups?: string[];
   suggested_links?: { url: string; title: string }[];
+  diagram?: { mermaid: string; caption?: string } | null;
 }
 
 export const RoleEnum = {
@@ -39,11 +40,11 @@ export type IChatTypes = keyof typeof ChatTypeEnum;
 
 function App() {
   const [inputText, setInputText] = React.useState<string>("");
-  const [useDocs, setUseDocs] = React.useState(true);
+  const [visuals, setVisuals] = React.useState(true);
   const [hasDocs, setHasDocs] = React.useState(false);
   const [docsRefresh, setDocsRefresh] = React.useState(0);
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
-  // Draft mode: user can compose before any backend session exists.
+  // Draft mode: an empty new-chat state before a source (and session) exist.
   const [isDrafting, setIsDrafting] = React.useState(true);
   const [activeSession, setActiveSession] = React.useState<ISession | null>(null);
   const scrollToAns = React.useRef<any>(null);
@@ -56,8 +57,8 @@ function App() {
     sessionListRef.current?.addSession(session);
   }, []);
 
-  const { messages, isLoading, sendMessage, latestTitle, ensureSession } = useChat(
-    useDocs && hasDocs,
+  const { messages, isLoading, sendMessage, latestTitle, ensureSession, refreshMessages } = useChat(
+    visuals,
     activeSession?.id ?? null,
     handleSessionCreated
   );
@@ -74,7 +75,7 @@ function App() {
 
   React.useEffect(() => { setHasDocs(false); }, [activeSession?.id]);
 
-  // Update sidebar title when LLM generates one after the first exchange
+  // Update sidebar title when the LLM generates one (from the first source summary)
   React.useEffect(() => {
     if (latestTitle && activeSession) {
       setActiveSession((s) => s ? { ...s, title: latestTitle } : s);
@@ -104,7 +105,6 @@ function App() {
     setActiveSession(null);
     setIsDrafting(true);
     setInputText("");
-    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const handleSessionDelete = (deletedId: string) => {
@@ -114,8 +114,15 @@ function App() {
     }
   };
 
+  // Called after any source is added — refresh the sidebar list and reload
+  // messages so the freshly generated summary appears in the chat.
+  const handleSourceAdded = React.useCallback((sid: string) => {
+    setDocsRefresh((v) => v + 1);
+    if (sid) refreshMessages(sid);
+  }, [refreshMessages]);
+
   const noSessionSelected = !activeSession;
-  const canCompose = !!activeSession || isDrafting;
+  const canChat = !!activeSession && hasDocs;   // chat only after a source exists
 
   return (
     <div className="scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent h-screen flex bg-background text-foreground">
@@ -147,62 +154,72 @@ function App() {
         <ChatHeader sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((v) => !v)} />
 
         {noSessionSelected ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3 px-6 text-center">
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center">
             <span className="font-serif text-3xl text-foreground/80">Notebook</span>
-            <p className="text-sm">
-              {isDrafting
-                ? "Ask a question, or add a document or link to begin."
-                : "Select a chat or start a new one."}
-            </p>
+            {isDrafting ? (
+              <>
+                <p className="text-sm text-muted-foreground max-w-sm">
+                  Add a document or link to start. Notebook will summarize it, then you can chat and get visual explanations.
+                </p>
+                <AddSourceMenu
+                  ensureSession={ensureSession}
+                  onSourceAdded={handleSourceAdded}
+                  visuals={visuals}
+                  variant="cta"
+                />
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Select a chat or start a new one.</p>
+            )}
           </div>
         ) : (
           <ChatPannel
             chatMessages={messages}
             scrollToAns={scrollToAns}
             sessionId={activeSession?.id ?? null}
-            onSourceAdded={() => setDocsRefresh((v) => v + 1)}
+            onSourceAdded={handleSourceAdded}
             onFollowUp={(t) => onPrompt(t)}
             isLoading={isLoading}
-            useDocs={useDocs && hasDocs}
           />
         )}
 
         <div className="shrink-0 flex flex-col items-center gap-2.5 py-4">
-          {/* Toggle */}
-          <label className={`flex items-center gap-2 text-xs select-none ${hasDocs ? "cursor-pointer text-foreground" : "cursor-not-allowed text-muted-foreground/60"}`}>
+          {/* Visual representation toggle */}
+          <label className="flex items-center gap-2 text-xs select-none cursor-pointer text-foreground">
             <div
-              onClick={() => hasDocs && setUseDocs((v) => !v)}
-              className={`relative w-8 h-4 rounded-full transition-colors ${useDocs && hasDocs ? "bg-primary" : "bg-border"}`}
+              onClick={() => setVisuals((v) => !v)}
+              className={`relative w-8 h-4 rounded-full transition-colors ${visuals ? "bg-primary" : "bg-border"}`}
             >
-              <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-card shadow-sm transition-transform ${useDocs && hasDocs ? "translate-x-4" : ""}`} />
+              <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-card shadow-sm transition-transform ${visuals ? "translate-x-4" : ""}`} />
             </div>
-              Answer from sources
+            Visual explanations
           </label>
 
           {/* Input */}
           <div
             className={`bg-card w-[min(42rem,90%)] text-foreground rounded-2xl border flex items-center gap-1 p-2 h-14 transition-colors shadow-sm
-              ${canCompose ? "border-border focus-within:border-ring" : "border-border opacity-50"}`}
+              ${canChat ? "border-border focus-within:border-ring" : "border-border opacity-50"}`}
           >
             <AddSourceMenu
               ensureSession={ensureSession}
-              onSourceAdded={() => setDocsRefresh((v) => v + 1)}
-              disabled={!canCompose}
+              onSourceAdded={handleSourceAdded}
+              visuals={visuals}
+              disabled={false}
             />
             <input
               ref={inputRef}
               autoFocus
               type="text"
-              placeholder={canCompose ? "Ask anything, or add a source…" : "Start a new chat to begin"}
+              placeholder={canChat ? "Ask about your sources…" : "Add a source to start chatting"}
               className="w-full h-full outline-none bg-transparent placeholder:text-muted-foreground disabled:cursor-not-allowed"
               value={inputText}
               onKeyDown={onKeyDownQuestion}
               onChange={(e) => setInputText(e.target.value)}
-              disabled={isLoading || !canCompose}
+              disabled={isLoading || !canChat}
             />
             <button
               onClick={() => onPrompt(inputText)}
-              disabled={isLoading || !canCompose || !inputText.trim()}
+              disabled={isLoading || !canChat || !inputText.trim()}
               className="p-2 rounded-full bg-primary text-primary-foreground hover:opacity-90 shrink-0 disabled:opacity-40 transition-opacity"
             >
               <ArrowUp className="w-5 h-5" />
