@@ -6,6 +6,8 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 export interface ISession {
   id: string;
   title: string;
+  confidential?: boolean;
+  model?: string | null;
   updated_at: string;
 }
 

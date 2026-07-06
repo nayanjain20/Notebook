@@ -26,10 +26,14 @@ def init_db():
                 updated_at  TEXT NOT NULL
             )
         """)
-        # Migrate older databases that predate the session context column.
+        # Migrate older databases that predate newer session columns.
         session_cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
         if "context" not in session_cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN context TEXT")
+        if "confidential" not in session_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN confidential INTEGER NOT NULL DEFAULT 0")
+        if "model" not in session_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN model TEXT")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,25 +69,36 @@ def _now() -> str:
 
 # ─── Sessions ────────────────────────────────────────────────────────────────
 
-def create_session() -> dict:
+def create_session(confidential: bool = False, model: str | None = None) -> dict:
+    """Create a session. ``confidential`` and ``model`` are fixed for the
+    session's lifetime and determine which backend answers."""
     sid = str(uuid.uuid4())
     now = _now()
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO sessions (id, user_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (sid, USER_ID, "New Chat", now, now),
+            "INSERT INTO sessions (id, user_id, title, confidential, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (sid, USER_ID, "New Chat", 1 if confidential else 0, model, now, now),
         )
         conn.commit()
-    return {"id": sid, "title": "New Chat", "created_at": now, "updated_at": now}
+    return {
+        "id": sid, "title": "New Chat",
+        "confidential": bool(confidential), "model": model,
+        "created_at": now, "updated_at": now,
+    }
 
 
 def list_sessions() -> list:
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT id, title, created_at, updated_at FROM sessions WHERE user_id = ? ORDER BY updated_at DESC",
+            "SELECT id, title, confidential, model, created_at, updated_at FROM sessions WHERE user_id = ? ORDER BY updated_at DESC",
             (USER_ID,),
         ).fetchall()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        s = dict(r)
+        s["confidential"] = bool(s.get("confidential"))
+        result.append(s)
+    return result
 
 
 def get_session_messages(session_id: str) -> list:
@@ -138,6 +153,20 @@ def update_session_context(session_id: str, context: dict):
     with _connect() as conn:
         conn.execute("UPDATE sessions SET context = ? WHERE id = ?", (json.dumps(context), session_id))
         conn.commit()
+
+
+def get_session_confidential(session_id: str) -> bool:
+    """Whether this session runs in confidential (local-only) mode. Fixed at creation."""
+    with _connect() as conn:
+        row = conn.execute("SELECT confidential FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    return bool(row["confidential"]) if row else False
+
+
+def get_session_model(session_id: str) -> str | None:
+    """The chat model id chosen for this session. Fixed at creation."""
+    with _connect() as conn:
+        row = conn.execute("SELECT model FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    return row["model"] if row else None
 
 
 def _set_title(session_id: str, title: str, conn: sqlite3.Connection):

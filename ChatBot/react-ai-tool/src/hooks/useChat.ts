@@ -8,7 +8,9 @@ export const useChat = (
   visuals: boolean,
   sessionId: string | null,
   onSessionCreated?: (session: ISession) => void,
-  onSourcesAdded?: () => void
+  onSourcesAdded?: () => void,
+  confidential?: boolean,
+  model?: string | null
 ) => {
   const [messages, setMessages] = React.useState<IChatMessage[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -43,9 +45,14 @@ export const useChat = (
   }, []);
 
   // Creates a backend session lazily (used when the first source is added).
+  // The confidential mode is fixed here, at creation, and never changes after.
   const createSession = async (): Promise<string | null> => {
     try {
-      const res = await fetch(`${BASE_URL}/api/sessions`, { method: "POST" });
+      const res = await fetch(`${BASE_URL}/api/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confidential: !!confidential, model: model ?? undefined }),
+      });
       const session: ISession = await res.json();
       skipLoadRef.current = true;
       setMessages([]);

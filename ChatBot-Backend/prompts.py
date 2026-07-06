@@ -140,31 +140,76 @@ ANSWER_TOOL = {
     },
 }
 
-DIAGRAM_TOOL = {
+# Metadata-only companion to ANSWER_TOOL. The answer text is generated separately
+# as free-form markdown (far more reliable and complete on local models than
+# embedding a long answer inside a constrained JSON string); this tool then
+# extracts just the structured metadata about that answer.
+ANSWER_META_TOOL = {
     "type": "function",
     "function": {
-        "name": "provide_diagram",
-        "description": "Decide whether a diagram helps and, if so, produce a Mermaid diagram",
+        "name": "describe_answer",
+        "description": "Given a drafted answer and the numbered context, return citation and metadata for it.",
         "parameters": {
             "type": "object",
             "properties": {
-                "needs_diagram": {
-                    "type": "boolean",
+                "confidence": {
+                    "type": "number",
+                    "description": "Confidence the answer is correct and grounded, from 0.0 to 1.0 (never a percentage).",
+                },
+                "source_indices": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "1-based indices of the numbered context sources the answer actually used. Empty if none.",
+                },
+                "follow_ups": {
+                    "type": "array",
+                    "items": {"type": "string"},
                     "description": (
-                        "True ONLY if the answer is fundamentally about how things RELATE or CONNECT: a system "
-                        "architecture, how components interact, an entity/relationship, or a hierarchy — where a "
-                        "box-and-arrow picture reveals structure words cannot. FALSE for everything else, including "
-                        "lists of steps, how-tos, procedures, definitions, clarifications, comparisons, opinions, "
-                        "and simple explanations. Most answers are FALSE. When unsure, choose false."
+                        "0-3 short, specific next questions the user might want, phrased as the user would ask "
+                        "them. Include ONLY when they add value."
                     ),
                 },
-                "mermaid": {
-                    "type": "string",
-                    "description": "Valid Mermaid source (e.g. 'graph TD'). Short node labels. Empty if needs_diagram is false.",
+                "suggested_links": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "description": "A real, well-known http(s) URL"},
+                            "title": {"type": "string", "description": "Short label describing the link"},
+                        },
+                        "required": ["url", "title"],
+                    },
+                    "description": (
+                        "0-4 authoritative URLs that would deepen understanding. Only real, canonical URLs; "
+                        "if unsure, return an empty list — never invent URLs."
+                    ),
                 },
-                "caption": {"type": "string", "description": "A short caption describing the diagram. Empty if no diagram."},
+                "session_update": {
+                    "type": "object",
+                    "description": "Update your memory of this learning session. Include only fields that changed.",
+                    "properties": {
+                        "purpose": {"type": "string", "description": "The user's overall goal, once known"},
+                        "expectations": {"type": "string", "description": "What kind of help/depth the user expects"},
+                        "current_topic": {"type": "string", "description": "The topic of this turn"},
+                        "example_domain": {
+                            "type": "string",
+                            "description": "The running example/analogy used this session (e.g. 'coffee shop'). Set once; keep consistent.",
+                        },
+                        "covered_add": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Short labels of concepts just taught, to remember as covered",
+                        },
+                        "interests": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Subtopics the user showed interest in",
+                        },
+                        "next_step": {"type": "string", "description": "The natural next step you plan to take"},
+                    },
+                },
             },
-            "required": ["needs_diagram", "mermaid", "caption"],
+            "required": ["confidence", "source_indices"],
         },
     },
 }

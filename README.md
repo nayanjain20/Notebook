@@ -64,7 +64,8 @@ Notebook/
 │   ├── onboarding.py             # reaction when a source is added
 │   ├── ingestion.py              # parsing, embedding, hybrid retrieval (RAG)
 │   ├── prompts.py                # persona, session memory, tool schemas
-│   ├── llm.py                    # Azure OpenAI client + call helpers
+│   ├── llm.py                    # chat facade → active provider
+│   ├── providers/               # pluggable model backends (Azure, Ollama)
 │   ├── helpers.py                # pure data-shaping utilities
 │   ├── config.py                 # env vars + constants
 │   ├── db.py                     # SQLite persistence
@@ -129,6 +130,42 @@ takes a little while.
 | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | embeddings deployment (e.g. `text-embedding-3-small`) |
 | `AZURE_COHERE_RERANK_ENDPOINT` | Azure-hosted Cohere Rerank endpoint URL |
 | `AZURE_COHERE_API_KEY` | API key for Cohere Rerank |
+
+### Confidential mode (local models)
+
+Every chat session picks a **mode** at creation (a checkbox in the UI) that is
+then **locked for that session**:
+
+- **Confidential** — chat *and* embeddings run on a local **Ollama** model, so no
+  document text or prompt ever leaves your machine. The UI shows a
+  *"Confidential · Local models"* badge.
+- **Standard** — runs on **Azure OpenAI** (public cloud). The UI shows a
+  *"Running on public models"* badge.
+
+The lock is enforced server-side: the backend always picks the provider from the
+session's stored mode, never from the client.
+
+**To enable local/confidential mode, install Ollama and pull models:**
+
+```bash
+# 1. Install Ollama (https://ollama.com), then:
+ollama pull llama3.1            # local chat model
+ollama pull nomic-embed-text    # local embedding model
+
+# 2. Start the backend as usual. Create a chat with "Confidential mode"
+#    ticked — it will run entirely on the local models.
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_PROVIDER` | `azure` | process-wide default chat backend (`azure`/`ollama`) |
+| `EMBEDDING_PROVIDER` | `azure` | process-wide default embedding backend |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama's OpenAI-compatible endpoint |
+| `OLLAMA_CHAT_MODEL` | `llama3.1` | local chat model used by confidential sessions |
+| `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | local embedding model used by confidential sessions |
+
+> Confidential and standard sessions keep their vectors in **separate ChromaDB
+> collections** (different embedding dimensions), so they never interfere.
 
 ### 2. Frontend
 

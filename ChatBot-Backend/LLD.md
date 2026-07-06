@@ -20,25 +20,91 @@ flowchart TD
     onboarding --> llm
     onboarding --> db
     prompts --> soul[soul.md]
-    llm --> config[config.py]
+    llm --> providers[providers/<br/>factory + strategies]
+    ingestion --> providers
+    providers --> config[config.py]
 ```
 
-Dependencies flow one way (routes → agent/onboarding → ingestion/db/llm), so no
-module imports its caller. The only lazy import is `agent.onboarding_title`,
-which imports `onboarding` inside the function to avoid an import cycle.
+Dependencies flow one way (routes → agent/onboarding → ingestion/db/llm →
+providers), so no module imports its caller. The only lazy import is
+`agent.onboarding_title`, which imports `onboarding` inside the function to
+avoid an import cycle.
 
 | Module | Lines of responsibility |
 |--------|-------------------------|
-| `config.py` | reads `.env`, exposes typed constants (Azure creds, `DOCS_DIR`, `MAX_FILE_SIZE`, `ALLOWED_EXTENSIONS`, loop bounds) |
-| `llm.py` | one shared `AzureOpenAI` client; `call_tool()` (forced function call → parsed args) and `call_text()` (plain text) |
+| `config.py` | reads `.env`, exposes typed constants (Azure creds, provider selection, Ollama settings, `DOCS_DIR`, `MAX_FILE_SIZE`, `ALLOWED_EXTENSIONS`, loop bounds) |
+| `providers/` | pluggable model backends (Strategy + Factory): `ChatProvider`/`EmbeddingProvider` interfaces and Azure/Ollama implementations |
+| `llm.py` | thin chat facade — `call_tool()` / `call_text()` delegate to the active `ChatProvider` |
 | `prompts.py` | loads `soul.md` as `AGENT_PERSONA`, `render_session_memory()`, and all tool schemas |
 | `helpers.py` | pure functions: history→messages, chunk digests/merge, Mermaid cleaning, session-update merge |
-| `ingestion.py` | parsing, chunking, embedding, hybrid retrieval (unchanged RAG core) |
+| `ingestion.py` | parsing, chunking, embedding (via `EmbeddingProvider`), hybrid retrieval |
 | `agent.py` | retrieval, reflection, answer composition, quality gate, diagram gate, `run_agent_stream` |
 | `onboarding.py` | intro / acknowledgement / title generation for added sources |
 | `routes.py` | one `/api` blueprint; validation + delegation + JSON/SSE shaping |
 | `db.py` | SQLite persistence and migrations |
 | `app.py` | `create_app()` factory and `__main__` runner |
+
+---
+
+## Pluggable model providers & confidential mode
+
+Notebook can run its chat and embedding models on different backends without any
+change to the agent, onboarding, or retrieval code. This uses two classic
+patterns:
+
+- **Strategy** — `providers/base.py` defines two interfaces, `ChatProvider`
+  (`call_tool`, `call_text`) and `EmbeddingProvider` (`embed`). Each backend is
+  one implementation of these.
+- **Factory** — `providers/factory.py` builds and caches providers, and tracks
+  the *active* chat + embedding providers for the current request via context
+  variables. Callers use `get_chat_provider()` / `get_embedding_provider()` and
+  never import a concrete class.
+
+```mermaid
+flowchart TD
+    llm[llm.py facade] --> gf["factory.get_chat_provider()"]
+    ing[ingestion._embed] --> ef["factory.get_embedding_provider()"]
+    gf --> CP{{ChatProvider}}
+    ef --> EP{{EmbeddingProvider}}
+    CP --> AZ[AzureOpenAIChatProvider]
+    CP --> OL[OllamaChatProvider]
+    EP --> AZE[AzureOpenAIEmbeddingProvider]
+    EP --> OLE[OllamaEmbeddingProvider]
+```
+
+### Confidential mode (per session, locked at creation)
+
+Each session runs in one of two **modes**, chosen once when it's created (a
+checkbox in the UI) and never changed:
+
+| Mode | Chat | Embeddings | Guarantee |
+|------|------|-----------|-----------|
+| **Confidential** | local Ollama | local Ollama | nothing leaves the machine |
+| **Standard** | Azure OpenAI | Azure OpenAI | public cloud |
+
+The mode is stored on the session (`sessions.confidential`). On every request
+that touches a session, `routes._activate_session_providers` reads that flag and
+calls `factory.activate_for_session(confidential)`, which sets the active chat
+model **and** embedding provider. Because the backend always derives the
+providers from the session's stored flag — never from client input — the lock is
+**enforced server-side**: a confidential session can never be pushed to the cloud.
+
+Since embeddings must be local too for confidentiality, and a ChromaDB
+collection has a fixed vector dimension, each embedding provider gets its **own
+collection**: Azure keeps `documents` (1536-dim); Ollama uses `documents_ollama`
+(768-dim). `ingestion._get_collection()` picks the right one from the active
+embedding provider, so confidential and standard sessions never share vectors.
+
+**Structured output on local models:** local models don't reliably support
+OpenAI-style *forced* tool calls, so `OllamaChatProvider.call_tool` uses JSON
+mode instead — it appends an instruction describing the required fields (derived
+from the tool's JSON schema) and requests a single JSON object. This is portable
+across local models and needs no function-calling support.
+
+`LLM_PROVIDER` / `EMBEDDING_PROVIDER` in config set the process-wide **default**
+mode (used when no session is in play, e.g. the eval harness). Adding a new
+backend means writing one class implementing the interfaces and wiring it into
+the factory — nothing else changes.
 
 ---
 
@@ -249,6 +315,11 @@ All in `config.py`:
 
 | Constant | Default | Meaning |
 |----------|---------|---------|
+| `LLM_PROVIDER` | `azure` | chat backend: `azure` or `ollama` |
+| `EMBEDDING_PROVIDER` | `azure` | embedding backend: `azure` or `ollama` |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama OpenAI-compatible endpoint |
+| `OLLAMA_CHAT_MODEL` | `llama3.1` | local chat model (must support the workload) |
+| `OLLAMA_EMBEDDING_MODEL` | `nomic-embed-text` | local embedding model |
 | `MAX_REFLECT_ITERATIONS` | 3 | reflect actions before the agent must answer |
 | `MAX_ANSWER_REVISIONS` | 2 | quality-gate recomposition attempts |
 | `MAX_AUTO_IMPORTS` | 2 | cap on self-fetched sources per turn |

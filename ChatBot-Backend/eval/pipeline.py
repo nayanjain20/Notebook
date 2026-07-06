@@ -41,9 +41,9 @@ EVAL_COLLECTION = "eval_docs"   # kept for generate_testset.py compatibility
 # ── Collection helpers ────────────────────────────────────────────────────────
 
 def collection_exists(collection_name: str = EVAL_COLLECTION) -> bool:
-    from ingestion import _collection
+    from ingestion import _get_collection
     try:
-        result = _collection.get(where={"session_id": {"$eq": EVAL_SESSION_ID}})
+        result = _get_collection().get(where={"session_id": {"$eq": EVAL_SESSION_ID}})
         return len(result["ids"]) > 0
     except Exception:
         return False

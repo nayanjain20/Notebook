@@ -65,7 +65,8 @@ Each backend module has one job:
 | `onboarding.py` | what the assistant says when a source is added |
 | `ingestion.py` | parse → chunk → embed → hybrid retrieve (the RAG pipeline) |
 | `prompts.py` | persona (`soul.md`), session-memory rendering, tool schemas |
-| `llm.py` | one shared Azure OpenAI client + `call_tool` / `call_text` |
+| `llm.py` | chat facade — `call_tool` / `call_text` delegate to the active provider |
+| `providers/` | pluggable model backends (Azure OpenAI, local Ollama) via Strategy + Factory |
 | `helpers.py` | pure, side-effect-free data shaping |
 | `config.py` | environment variables and tuning constants |
 | `db.py` | SQLite persistence for sessions, messages, and session memory |
