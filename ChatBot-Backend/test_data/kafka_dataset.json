@@ -1,0 +1,302 @@
+[
+  {
+    "question": "What is Apache Kafka?",
+    "ground_truth": "Apache Kafka is a distributed event streaming platform. It combines three key capabilities: publishing and subscribing to streams of events, storing streams of events durably and reliably for as long as you want, and processing streams of events as they occur or retrospectively. It is provided in a distributed, highly scalable, elastic, fault-tolerant, and secure manner.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What are the three key capabilities that Kafka combines as an event streaming platform?",
+    "ground_truth": "Kafka combines three key capabilities: (1) to publish (write) and subscribe to (read) streams of events, including continuous import/export of data from other systems; (2) to store streams of events durably and reliably for as long as you want; and (3) to process streams of events as they occur or retrospectively.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is event streaming?",
+    "ground_truth": "Event streaming is the practice of capturing data in real-time from event sources like databases, sensors, mobile devices, cloud services, and software applications in the form of streams of events; storing these event streams durably for later retrieval; manipulating, processing, and reacting to the event streams in real-time as well as retrospectively; and routing the event streams to different destination technologies as needed. It is described as the digital equivalent of the human body's central nervous system.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is an event in Kafka?",
+    "ground_truth": "An event records the fact that something happened in the world or in your business. It is also called a record or message in the documentation. When you read or write data to Kafka, you do it in the form of events. Conceptually, an event has a key, a value, a timestamp, and optional metadata headers.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is a producer in Kafka?",
+    "ground_truth": "Producers are those client applications that publish (write) events to Kafka.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is a consumer in Kafka?",
+    "ground_truth": "Consumers are those client applications that subscribe to (read and process) events from Kafka.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How are producers and consumers related in Kafka?",
+    "ground_truth": "In Kafka, producers and consumers are fully decoupled and agnostic of each other, which is a key design element to achieve the high scalability that Kafka is known for. For example, producers never need to wait for consumers.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is a topic in Kafka?",
+    "ground_truth": "A topic is where events are organized and durably stored. Very simplified, a topic is similar to a folder in a filesystem, and the events are the files in that folder. Topics in Kafka are always multi-producer and multi-subscriber: a topic can have zero, one, or many producers that write to it and zero, one, or many consumers that subscribe to it.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "Are events deleted after they are consumed in Kafka?",
+    "ground_truth": "No. Unlike traditional messaging systems, events in Kafka are not deleted after consumption. Events in a topic can be read as often as needed. Instead, you define how long Kafka should retain events through a per-topic configuration setting, after which old events are discarded.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How does Kafka decide how long to keep events?",
+    "ground_truth": "You define for how long Kafka should retain your events through a per-topic configuration setting, after which old events will be discarded. Kafka's performance is effectively constant with respect to data size, so storing data for a long time is perfectly fine.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is a partition in Kafka?",
+    "ground_truth": "Topics are partitioned, meaning a topic is spread over a number of buckets located on different Kafka brokers. This distributed placement of data is important for scalability because it allows client applications to both read and write data from and to many brokers at the same time. When a new event is published to a topic, it is appended to one of the topic's partitions.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "Why is partitioning important for scalability in Kafka?",
+    "ground_truth": "Partitioning is important for scalability because spreading a topic over a number of buckets located on different Kafka brokers allows client applications to both read and write the data from and to many brokers at the same time.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How does Kafka decide which partition an event goes to?",
+    "ground_truth": "When a new event is published to a topic, it is appended to one of the topic's partitions. Events with the same event key (e.g., a customer or vehicle ID) are written to the same partition.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What ordering guarantee does Kafka provide for partitions?",
+    "ground_truth": "Kafka guarantees that any consumer of a given topic-partition will always read that partition's events in exactly the same order as they were written.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What happens to events that have the same key in Kafka?",
+    "ground_truth": "Events with the same event key (for example a customer or vehicle ID) are written to the same partition, and Kafka guarantees that a consumer of that topic-partition reads the events in the same order they were written.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is replication in Kafka?",
+    "ground_truth": "To make data fault-tolerant and highly available, every topic can be replicated, even across geo-regions or datacenters, so that there are always multiple brokers that have a copy of the data in case something goes wrong or you want to do maintenance on the brokers. Replication is performed at the level of topic-partitions.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is a common replication factor used in production Kafka setups?",
+    "ground_truth": "A common production setting is a replication factor of 3, meaning there will always be three copies of your data.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "At what level is replication performed in Kafka?",
+    "ground_truth": "Replication is performed at the level of topic-partitions.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is a Kafka broker?",
+    "ground_truth": "Brokers are the Kafka servers that form the storage layer. Kafka runs as a cluster of one or more servers, and some of these servers form the storage layer called the brokers.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What are the two types of components that make up a Kafka system?",
+    "ground_truth": "Kafka is a distributed system consisting of servers and clients that communicate via a high-performance TCP network protocol. Servers include brokers (the storage layer) and servers running Kafka Connect; clients let you write applications that read, write, and process streams of events.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How do Kafka servers and clients communicate?",
+    "ground_truth": "Kafka servers and clients communicate via a high-performance TCP network protocol.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What happens if a Kafka server in the cluster fails?",
+    "ground_truth": "A Kafka cluster is highly scalable and fault-tolerant: if any of its servers fails, the other servers will take over their work to ensure continuous operations without any data loss.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "Can a Kafka cluster span multiple datacenters or cloud regions?",
+    "ground_truth": "Yes. Kafka is run as a cluster of one or more servers that can span multiple datacenters or cloud regions.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What are Kafka clients used for?",
+    "ground_truth": "Clients allow you to write distributed applications and microservices that read, write, and process streams of events in parallel, at scale, and in a fault-tolerant manner even in the case of network problems or machine failures.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "Which programming languages have Kafka clients available?",
+    "ground_truth": "Kafka ships with some clients included and is augmented by dozens of community-provided clients. Clients are available for Java and Scala (including the higher-level Kafka Streams library), as well as Go, Python, C/C++, and many other programming languages, as well as REST APIs.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What are the five core APIs provided by Kafka?",
+    "ground_truth": "Kafka has five core APIs for Java and Scala: the Admin API, the Producer API, the Consumer API, the Kafka Streams API, and the Kafka Connect API.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is the Kafka Admin API used for?",
+    "ground_truth": "The Admin API is used to manage and inspect topics, brokers, and other Kafka objects.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is the Kafka Producer API used for?",
+    "ground_truth": "The Producer API is used to publish (write) a stream of events to one or more Kafka topics.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is the Kafka Consumer API used for?",
+    "ground_truth": "The Consumer API is used to subscribe to (read) one or more topics and to process the stream of events produced to them.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is the Kafka Streams API used for?",
+    "ground_truth": "The Kafka Streams API is used to implement stream processing applications and microservices. It provides higher-level functions to process event streams, including transformations, stateful operations like aggregations and joins, windowing, and processing based on event-time. Input is read from one or more topics to generate output to one or more topics, effectively transforming input streams into output streams.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is the Kafka Connect API used for?",
+    "ground_truth": "The Kafka Connect API is used to build and run reusable data import/export connectors that consume (read) or produce (write) streams of events from and to external systems and applications so they can integrate with Kafka. For example, a connector to a relational database like PostgreSQL might capture every change to a set of tables.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "Do you usually need to implement your own Kafka connectors?",
+    "ground_truth": "No. In practice you typically don't need to implement your own connectors because the Kafka community already provides hundreds of ready-to-use connectors.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How does Kafka compare to traditional message brokers for messaging use cases?",
+    "ground_truth": "Kafka works well as a replacement for a more traditional message broker. Compared to most messaging systems, Kafka has better throughput, built-in partitioning, replication, and fault-tolerance, which makes it a good solution for large scale message processing applications. In this domain Kafka is comparable to traditional messaging systems such as ActiveMQ or RabbitMQ.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What was the original use case for Kafka?",
+    "ground_truth": "The original use case for Kafka was to be able to rebuild a user activity tracking pipeline as a set of real-time publish-subscribe feeds. Site activity such as page views, searches, or other user actions is published to central topics with one topic per activity type.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How is Kafka used for log aggregation?",
+    "ground_truth": "Many people use Kafka as a replacement for a log aggregation solution. Kafka abstracts away the details of files and gives a cleaner abstraction of log or event data as a stream of messages. This allows for lower-latency processing and easier support for multiple data sources and distributed data consumption. Compared to log-centric systems like Scribe or Flume, Kafka offers equally good performance, stronger durability guarantees due to replication, and much lower end-to-end latency.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How is Kafka used for metrics?",
+    "ground_truth": "Kafka is often used for operational monitoring data. This involves aggregating statistics from distributed applications to produce centralized feeds of operational data.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is event sourcing and how does Kafka support it?",
+    "ground_truth": "Event sourcing is a style of application design where state changes are logged as a time-ordered sequence of records. Kafka's support for very large stored log data makes it an excellent backend for an application built in this style.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How can Kafka be used as a commit log?",
+    "ground_truth": "Kafka can serve as a kind of external commit-log for a distributed system. The log helps replicate data between nodes and acts as a re-syncing mechanism for failed nodes to restore their data. The log compaction feature in Kafka helps support this usage. In this usage Kafka is similar to the Apache BookKeeper project.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is stream processing in the context of Kafka?",
+    "ground_truth": "Stream processing in Kafka involves processing data in pipelines consisting of multiple stages, where raw input data is consumed from Kafka topics and then aggregated, enriched, or otherwise transformed into new topics for further consumption or follow-up processing. Kafka Streams, a light-weight but powerful stream processing library available since 0.10.0.0, can perform this data processing.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "Besides Kafka Streams, what other open source stream processing tools are mentioned?",
+    "ground_truth": "Apart from Kafka Streams, alternative open source stream processing tools include Apache Storm and Apache Samza.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What Java version is required to run Kafka from the downloaded files?",
+    "ground_truth": "Your local environment must have Java 17 or later installed to run Kafka from the downloaded files.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What are the ways you can run Kafka?",
+    "ground_truth": "Kafka can be run using local scripts and downloaded files, or using the docker image.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How do you run Kafka using the Docker image?",
+    "ground_truth": "To run Kafka with the JVM-based Apache Kafka Docker image, you pull the image with 'docker pull apache/kafka:4.3.1' and start the container with 'docker run -p 9092:9092 apache/kafka:4.3.1'. There is also a GraalVM-based native image, apache/kafka-native, that can be used the same way. Port 9092 is the default Kafka broker port.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What must you do before you can write your first events to Kafka?",
+    "ground_truth": "Before you can write your first events, you must create a topic. This is done using Kafka's command line tools, specifically kafka-topics.sh with the --create option, specifying the topic name and the bootstrap server.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "Which command line tool is used to create a topic and what option shows a topic's details?",
+    "ground_truth": "The kafka-topics.sh command line tool is used to create a topic with the --create option. The --describe option shows details such as the partition count and replication factor of a topic.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How does the console producer write events by default?",
+    "ground_truth": "The console producer client (kafka-console-producer.sh) writes events into a topic, and by default each line you enter results in a separate event being written to the topic.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "How can you read all events from the beginning of a topic?",
+    "ground_truth": "You can read all events from the start of a topic using the console consumer client (kafka-console-consumer.sh) with the --from-beginning option. Because events are durably stored in Kafka, they can be read as many times and by as many consumers as you want, and reading them does not delete them.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What is the difference between a source connector and a sink connector in Kafka Connect?",
+    "ground_truth": "A source connector reads data from an external system into a Kafka topic, while a sink connector reads data from a Kafka topic and writes it to an external system. Kafka Connect runs connectors, which implement the custom logic for interacting with an external system, and connectors can run in standalone mode in a single, local, dedicated process.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "What processing guarantees and capabilities does Kafka Streams support?",
+    "ground_truth": "Kafka Streams supports exactly-once processing, stateful operations and aggregations, windowing, joins, and processing based on event-time. It combines the simplicity of writing and deploying standard Java and Scala applications on the client side with the benefits of Kafka's server-side cluster technology, making applications highly scalable, elastic, fault-tolerant, and distributed.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  },
+  {
+    "question": "On what kinds of infrastructure can Kafka be deployed?",
+    "ground_truth": "Kafka can be deployed on bare-metal hardware, virtual machines, and containers, and on-premises as well as in the cloud. You can choose between self-managing your Kafka environments and using fully managed services offered by a variety of vendors.",
+    "collection": "eval_docs",
+    "synthesizer": "manual_kafka"
+  }
+]
