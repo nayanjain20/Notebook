@@ -18,6 +18,7 @@ import agent
 import config
 import db
 import onboarding
+import providers
 from ingestion import (
     delete_document, delete_session_documents, embed_and_store, extract_and_chunk,
     extract_and_chunk_url, list_documents, source_name_for_url,
@@ -26,6 +27,29 @@ from ingestion import (
 logger = logging.getLogger(__name__)
 
 api = Blueprint("api", __name__, url_prefix="/api")
+
+
+def _activate_session_providers(session_id: str | None, confidential: bool | None = None,
+                                model: str | None = None) -> None:
+    """Point chat + embedding providers at a session's mode & model for this request.
+
+    Values may be passed directly (e.g. at creation); otherwise they're read from
+    the session. This is how the lock is *enforced*: the backend always derives
+    the backend from the session's fixed mode/model, never from live client input.
+    """
+    if confidential is None:
+        confidential = db.get_session_confidential(session_id) if session_id else False
+    if model is None and session_id:
+        model = db.get_session_model(session_id)
+    providers.activate(confidential, model)
+
+
+# ─── Models ───────────────────────────────────────────────────────────────────
+
+@api.route("/models", methods=["GET"])
+def get_models():
+    """Dynamically list the chat models available on this system (local + cloud)."""
+    return jsonify(providers.list_models())
 
 
 # ─── Chat ─────────────────────────────────────────────────────────────────────
@@ -44,7 +68,12 @@ def chat_stream():
     session_id = data.get("session_id")
     history = data.get("history", [])
 
+    # Providers are fixed by the session's stored mode & model — never client input.
+    confidential = db.get_session_confidential(session_id) if session_id else False
+    model = db.get_session_model(session_id) if session_id else None
+
     def sse():
+        providers.activate(confidential, model)
         for event in agent.run_agent_stream(user_message, history, session_id, visuals):
             yield f"data: {json.dumps(event)}\n\n"
 
@@ -64,16 +93,24 @@ def list_sessions():
 
 @api.route("/sessions", methods=["POST"])
 def create_session():
-    return jsonify(db.create_session()), 201
+    data = request.get_json(silent=True) or {}
+    confidential = bool(data.get("confidential", False))
+    model = (data.get("model") or "").strip() or None
+    return jsonify(db.create_session(confidential=confidential, model=model)), 201
 
 
 @api.route("/sessions/<session_id>", methods=["GET"])
 def get_session(session_id):
-    return jsonify({"messages": db.get_session_messages(session_id)})
+    return jsonify({
+        "messages": db.get_session_messages(session_id),
+        "confidential": db.get_session_confidential(session_id),
+        "model": db.get_session_model(session_id),
+    })
 
 
 @api.route("/sessions/<session_id>", methods=["DELETE"])
 def delete_session(session_id):
+    _activate_session_providers(session_id)   # clear docs from the right collection
     db.delete_session(session_id)
     delete_session_documents(session_id)
     session_dir = os.path.join(config.DOCS_DIR, session_id)
@@ -112,6 +149,7 @@ def upload_file():
     filepath = os.path.join(session_dir, filename)
     file.save(filepath)
 
+    _activate_session_providers(session_id)   # embed via the session's mode (local/public)
     try:
         chunks = extract_and_chunk(filepath, filename)
         embed_and_store(chunks, filename, session_id)
@@ -144,6 +182,8 @@ def upload_url():
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return jsonify({"error": "Provide a valid http(s) URL."}), 400
 
+    _activate_session_providers(session_id)   # embed via the session's mode (local/public)
+
     # Dedup: if this URL canonicalizes to an existing source, skip re-ingesting.
     name = source_name_for_url(url)
     if name in list_documents(session_id):
@@ -172,6 +212,7 @@ def get_docs():
     session_id = request.args.get("session_id")
     if not session_id:
         return jsonify({"error": "session_id is required"}), 400
+    _activate_session_providers(session_id)
     return jsonify({"documents": list_documents(session_id)})
 
 
@@ -180,6 +221,7 @@ def delete_doc(filename):
     session_id = request.args.get("session_id")
     if not session_id:
         return jsonify({"error": "session_id is required"}), 400
+    _activate_session_providers(session_id)
     delete_document(filename, session_id)
     filepath = os.path.join(config.DOCS_DIR, session_id, filename)
     if os.path.exists(filepath):

@@ -2,11 +2,35 @@ import React from "react";
 import mermaid from "mermaid";
 import { Maximize2, X, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 
+// Consistent diagram palette, harmonised with the app's warm, paper-like theme.
+// All diagrams draw from this fixed set (primary/secondary/tertiary node fills,
+// amber borders, warm-grey edges), so colours stay tasteful and consistent
+// instead of whatever ad-hoc colours a model might emit.
 mermaid.initialize({
   startOnLoad: false,
-  theme: "neutral",
+  theme: "base",
   securityLevel: "strict",
   fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+  themeVariables: {
+    // Primary nodes
+    primaryColor: "#EFE7D8",        // warm sand
+    primaryBorderColor: "#B9976A",  // muted amber
+    primaryTextColor: "#3A3229",    // dark brown
+    // Secondary / tertiary (nested subgraphs, alternate groups)
+    secondaryColor: "#DCE6EC",      // soft slate-blue
+    secondaryBorderColor: "#9DB2C0",
+    secondaryTextColor: "#2C333A",
+    tertiaryColor: "#E0E8DA",       // soft sage
+    tertiaryBorderColor: "#A8BE9C",
+    tertiaryTextColor: "#2F3A2A",
+    // Edges & labels
+    lineColor: "#9A8F80",           // warm grey
+    textColor: "#3A3229",
+    // Notes (sequence diagrams)
+    noteBkgColor: "#F5EFE2",
+    noteBorderColor: "#B9976A",
+    noteTextColor: "#3A3229",
+  },
 });
 
 interface MermaidDiagramProps {

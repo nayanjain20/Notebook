@@ -27,7 +27,8 @@ python app.py                    # http://127.0.0.1:5000
 | `onboarding.py` | assistant's reaction when a source is added |
 | `ingestion.py` | parsing, embedding, hybrid retrieval (RAG) |
 | `prompts.py` | persona (`soul.md`), session memory, tool schemas |
-| `llm.py` | Azure OpenAI client + call helpers |
+| `llm.py` | chat facade → active provider |
+| `providers/` | pluggable model backends (Azure, Ollama) via Strategy + Factory |
 | `helpers.py` | pure data-shaping utilities |
 | `config.py` | environment variables + constants |
 | `db.py` | SQLite persistence |

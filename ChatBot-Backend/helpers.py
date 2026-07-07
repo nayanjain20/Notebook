@@ -67,7 +67,8 @@ def clean_mermaid(text: str) -> str:
             text = text[len("mermaid"):]
         text = text.strip()
     first_token = text.lstrip().split(maxsplit=1)[0].lower() if text.strip() else ""
-    return text if first_token in _MERMAID_STARTERS else ""
+    # Prefix match so versioned types like "stateDiagram-v2" are accepted too.
+    return text if any(first_token.startswith(s) for s in _MERMAID_STARTERS) else ""
 
 
 def merge_session_update(context: dict, update: dict) -> dict:

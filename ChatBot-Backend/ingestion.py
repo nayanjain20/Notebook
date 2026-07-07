@@ -3,7 +3,6 @@ import json
 import logging
 import requests
 from urllib.parse import urlparse
-from openai import AzureOpenAI
 from sentence_transformers import CrossEncoder
 from dotenv import load_dotenv
 import chromadb
@@ -12,24 +11,34 @@ from unstructured.partition.auto import partition
 from unstructured.partition.html import partition_html
 from unstructured.chunking.title import chunk_by_title
 
+from providers.factory import get_chat_provider, get_embedding_provider
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
-CHAT_DEPLOYMENT = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
-
 _cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-
-_client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_CHAT_API_VERSION"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-)
 
 _CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", os.path.join(os.path.dirname(__file__), "chroma_db"))
 _chroma = chromadb.PersistentClient(path=_CHROMA_DB_PATH)
-_collection = _chroma.get_or_create_collection("documents")
+
+# A ChromaDB collection has a fixed vector dimension, so each embedding provider
+# gets its own collection. Azure keeps the original "documents" name (preserving
+# existing data); other providers append their name. Callers never touch this
+# directly — _get_collection() picks the right one for the active request.
+_COLLECTION_NAMES = {"azure": "documents"}
+_collections: dict = {}
+
+
+def _get_collection():
+    """Return the ChromaDB collection for the active request's embedding provider."""
+    from providers import active_embedding_name
+    name = active_embedding_name()
+    if name not in _collections:
+        coll_name = _COLLECTION_NAMES.get(name, f"documents_{name}")
+        _collections[name] = _chroma.get_or_create_collection(coll_name)
+    return _collections[name]
+
 
 # Per-session BM25 indexes — rebuilt on every upload/delete for that session.
 # Each entry: {"bm25": BM25Okapi, "ids": list[str], "docs": list[str]}
@@ -38,7 +47,7 @@ _bm25_index: dict = {}
 
 
 def _rebuild_bm25(session_id: str):
-    result = _collection.get(where={"session_id": {"$eq": session_id}})
+    result = _get_collection().get(where={"session_id": {"$eq": session_id}})
     if not result["ids"]:
         _bm25_index.pop(session_id, None)
         logger.info(f"[BM25] Session {session_id[:8]}… — index cleared (no docs)")
@@ -54,8 +63,7 @@ def _rebuild_bm25(session_id: str):
 # ─── Embedding ────────────────────────────────────────────────────────────────
 
 def _embed(text: str) -> list:
-    response = _client.embeddings.create(model=EMBEDDING_DEPLOYMENT, input=text)
-    return response.data[0].embedding
+    return get_embedding_provider().embed(text)
 
 
 # ─── Ingestion ────────────────────────────────────────────────────────────────
@@ -166,12 +174,13 @@ def embed_and_store(chunks: list, filename: str, session_id: str):
         logger.warning(f"[Ingest] No chunks to embed for '{filename}'")
         return
 
-    existing = _collection.get(where={
+    collection = _get_collection()
+    existing = collection.get(where={
         "$and": [{"filename": {"$eq": filename}}, {"session_id": {"$eq": session_id}}]
     })
     if existing["ids"]:
         logger.info(f"[Ingest] Replacing {len(existing['ids'])} existing chunks for '{filename}' in session {session_id[:8]}…")
-        _collection.delete(ids=existing["ids"])
+        collection.delete(ids=existing["ids"])
 
     ids = [f"{session_id}__{filename}__chunk_{i}" for i in range(len(chunks))]
     texts = [c["text"] for c in chunks]
@@ -183,20 +192,21 @@ def embed_and_store(chunks: list, filename: str, session_id: str):
     logger.info(f"[Ingest] Embedding {len(chunks)} chunks for '{filename}'…")
     embeddings = [_embed(t) for t in texts]
 
-    _collection.add(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas)
-    logger.info(f"[Ingest] Stored {len(chunks)} chunks. Collection total: {_collection.count()}")
+    collection.add(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas)
+    logger.info(f"[Ingest] Stored {len(chunks)} chunks. Collection total: {collection.count()}")
     _rebuild_bm25(session_id)
 
 
 # ─── Retrieval primitives ─────────────────────────────────────────────────────
 
 def _semantic_search(query: str, top_k: int = 10, session_id: str = None) -> list:
+    collection = _get_collection()
     where = {"session_id": {"$eq": session_id}} if session_id else None
-    existing = _collection.get(where=where) if where else _collection.get()
+    existing = collection.get(where=where) if where else collection.get()
     count = len(existing["ids"])
     if count == 0:
         return []
-    results = _collection.query(
+    results = collection.query(
         query_embeddings=[_embed(query)],
         n_results=min(top_k, count),
         where=where,
@@ -222,7 +232,7 @@ def _keyword_search(query: str, top_k: int = 10, session_id: str = None) -> list
         logger.debug(f"[BM25] '{query[:60]}' → 0 hits")
         return []
     ids = [entry["ids"][i] for i in top_indices]
-    results = _collection.get(ids=ids)
+    results = _get_collection().get(ids=ids)
     hits = [
         {"id": id_, "text": doc, "metadata": meta}
         for id_, doc, meta in zip(results["ids"], results["documents"], results["metadatas"])
@@ -260,19 +270,27 @@ def _format_history(history: list) -> str:
 
 
 def _llm_json_list(messages: list, n: int) -> list:
-    """Call the LLM and parse a JSON array response."""
-    response = _client.chat.completions.create(
-        model=CHAT_DEPLOYMENT,
-        messages=messages,
-        temperature=0.8,
-        max_completion_tokens=300,
-    )
-    text = response.choices[0].message.content.strip()
+    """Call the LLM and parse a JSON array of query strings.
+
+    Models (especially local ones) sometimes wrap items in nested lists or return
+    non-string entries, so we flatten one level and keep only non-empty strings —
+    otherwise a nested list would later crash on ``.lower()``.
+    """
+    text = get_chat_provider().call_text(messages, temperature=0.8, max_tokens=300)
     if "```" in text:
         text = text.split("```")[1]
         if text.startswith("json"):
             text = text[4:]
-    return json.loads(text.strip())[:n]
+    parsed = json.loads(text.strip())
+    if not isinstance(parsed, list):
+        return []
+    flat = []
+    for item in parsed:
+        if isinstance(item, str):
+            flat.append(item)
+        elif isinstance(item, list):
+            flat.extend(s for s in item if isinstance(s, str))
+    return [s.strip() for s in flat if s.strip()][:n]
 
 
 def _generate_query_variations(query: str, history: list = None, n: int = 5) -> list:
@@ -354,7 +372,7 @@ def advanced_search(query: str, top_n: int = 5, history: list = None, session_id
     """
     # Check for session documents
     if session_id and session_id not in _bm25_index:
-        probe = _collection.get(where={"session_id": {"$eq": session_id}})
+        probe = _get_collection().get(where={"session_id": {"$eq": session_id}})
         if not probe["ids"]:
             logger.info(f"[RAG] No documents for session {session_id[:8]}… — skipping")
             return []
@@ -404,24 +422,26 @@ def advanced_search(query: str, top_n: int = 5, history: list = None, session_id
 # ─── Utilities ───────────────────────────────────────────────────────────────
 
 def list_documents(session_id: str) -> list:
-    result = _collection.get(where={"session_id": {"$eq": session_id}})
+    result = _get_collection().get(where={"session_id": {"$eq": session_id}})
     return sorted({m["filename"] for m in result["metadatas"]}) if result["metadatas"] else []
 
 
 def delete_document(filename: str, session_id: str):
-    existing = _collection.get(where={
+    collection = _get_collection()
+    existing = collection.get(where={
         "$and": [{"filename": {"$eq": filename}}, {"session_id": {"$eq": session_id}}]
     })
     if existing["ids"]:
         logger.info(f"[Ingest] Deleting {len(existing['ids'])} chunks for '{filename}' in session {session_id[:8]}…")
-        _collection.delete(ids=existing["ids"])
+        collection.delete(ids=existing["ids"])
     _rebuild_bm25(session_id)
 
 
 def delete_session_documents(session_id: str):
     """Remove all ChromaDB chunks and BM25 index for a session. Called on session deletion."""
-    existing = _collection.get(where={"session_id": {"$eq": session_id}})
+    collection = _get_collection()
+    existing = collection.get(where={"session_id": {"$eq": session_id}})
     if existing["ids"]:
-        _collection.delete(ids=existing["ids"])
+        collection.delete(ids=existing["ids"])
         logger.info(f"[Ingest] Deleted {len(existing['ids'])} chunks for session {session_id[:8]}…")
     _bm25_index.pop(session_id, None)

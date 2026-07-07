@@ -15,6 +15,19 @@ AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_CHAT_API_VERSION = os.getenv("AZURE_OPENAI_CHAT_API_VERSION")
 CHAT_DEPLOYMENT = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+
+# ─── Model providers ──────────────────────────────────────────────────────────
+# Which backend serves chat and embeddings. Supported: "azure", "ollama".
+# Defaults keep the original all-Azure behaviour. They are chosen independently
+# so you can, for example, run chat locally while keeping Azure embeddings.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "azure").lower()
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "azure").lower()
+
+# Ollama (local, OpenAI-compatible). Only used when a provider is set to "ollama".
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen2.5:7b-instruct")
+OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
 
 # ─── Document uploads ─────────────────────────────────────────────────────────
 DOCS_DIR = "docs"

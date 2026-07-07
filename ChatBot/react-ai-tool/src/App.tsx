@@ -4,9 +4,12 @@ import ChatPanel from "./components/ChatPanel";
 import ChatHeader from "./components/ChatHeader";
 import FileUpload from "./components/FileUpload";
 import AddSourceMenu from "./components/AddSourceMenu";
+import { ModeSetup, ModeBadge, type IModel, type IModelCatalog } from "./components/ModeControls";
 import SessionList, { type ISession, type SessionListRef } from "./components/SessionList";
 import { ArrowUp } from "lucide-react";
 import { useChat } from "./hooks/useChat";
+
+const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export type ChatPart =
   | { text: string }
@@ -49,9 +52,33 @@ function App() {
   // Draft mode: an empty new-chat state before a source (and session) exist.
   const [isDrafting, setIsDrafting] = React.useState(true);
   const [activeSession, setActiveSession] = React.useState<ISession | null>(null);
+  // Mode & model are chosen while drafting and fixed once the session exists.
+  // Confidential (local) is the default.
+  const [confidential, setConfidential] = React.useState(true);
+  const [catalog, setCatalog] = React.useState<IModelCatalog | null>(null);
+  const [selectedModel, setSelectedModel] = React.useState<string | null>(null);
   const scrollToAns = React.useRef<any>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const sessionListRef = React.useRef<SessionListRef>(null);
+
+  // Discover which models this system actually has (local + cloud).
+  React.useEffect(() => {
+    fetch(`${BASE_URL}/api/models`)
+      .then((r) => r.json())
+      .then((data: IModelCatalog) => setCatalog(data))
+      .catch(() => setCatalog({ local: [], cloud: [], recommended_local: null, recommended_cloud: null }));
+  }, []);
+
+  // Models offered for the current mode, and the recommended default.
+  const modeModels: IModel[] = confidential ? catalog?.local ?? [] : catalog?.cloud ?? [];
+  const recommended = confidential ? catalog?.recommended_local : catalog?.recommended_cloud;
+
+  // When the mode (or catalog) changes while drafting, pick the recommended model.
+  React.useEffect(() => {
+    if (!catalog) return;
+    const stillValid = modeModels.some((m) => m.id === selectedModel);
+    if (!stillValid) setSelectedModel(recommended ?? modeModels[0]?.id ?? null);
+  }, [confidential, catalog]);
 
   const handleSessionCreated = React.useCallback((session: ISession) => {
     setIsDrafting(false);
@@ -63,7 +90,9 @@ function App() {
     visuals,
     activeSession?.id ?? null,
     handleSessionCreated,
-    () => setDocsRefresh((v) => v + 1)
+    () => setDocsRefresh((v) => v + 1),
+    confidential,
+    selectedModel
   );
 
   React.useEffect(() => {
@@ -109,6 +138,7 @@ function App() {
     setActiveSession(null);
     setIsDrafting(true);
     setInputText("");
+    setConfidential(true);
   };
 
   const handleSessionDelete = (deletedId: string) => {
@@ -128,6 +158,14 @@ function App() {
 
   const noSessionSelected = !activeSession;
   const canChat = !!activeSession && hasDocs;   // chat only after a source exists
+  // Sourcing requires a usable model for the chosen mode.
+  const canSource = modeModels.length > 0 && !!selectedModel;
+
+  const labelForModel = (id?: string | null): string | null => {
+    if (!id) return null;
+    const all = [...(catalog?.local ?? []), ...(catalog?.cloud ?? [])];
+    return all.find((m) => m.id === id)?.label ?? id.split(":").slice(1).join(":");
+  };
 
   return (
     <div className="scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent h-screen flex bg-background text-foreground">
@@ -173,13 +211,26 @@ function App() {
                 <p className="text-sm text-muted-foreground max-w-sm">
                   Add a document or link to start. Notebook will read it, then help you learn it step by step.
                 </p>
+                <ModeSetup
+                  confidential={confidential}
+                  onConfidentialChange={setConfidential}
+                  models={modeModels}
+                  selectedModel={selectedModel}
+                  onModelChange={setSelectedModel}
+                />
                 <AddSourceMenu
                   ensureSession={ensureSession}
                   onSourceAdded={handleSourceAdded}
                   onSourceAddStart={() => setIngesting(true)}
                   visuals={visuals}
                   variant="cta"
+                  disabled={!canSource}
                 />
+                <p className="text-[11px] text-muted-foreground/80 max-w-xs">
+                  {confidential
+                    ? "Confidential mode is on — this session will run entirely on local models. Mode and model can't be changed later."
+                    : "This session will run on public cloud models. Mode and model can't be changed later."}
+                </p>
               </>
             ) : (
               <p className="text-sm text-muted-foreground">Select a chat or start a new one.</p>
@@ -197,16 +248,20 @@ function App() {
         )}
 
         <div className="shrink-0 flex flex-col items-center gap-2.5 py-4">
-          {/* Visual representation toggle */}
-          <label className="flex items-center gap-2 text-xs select-none cursor-pointer text-foreground">
-            <div
-              onClick={() => setVisuals((v) => !v)}
-              className={`relative w-8 h-4 rounded-full transition-colors ${visuals ? "bg-primary" : "bg-border"}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-card shadow-sm transition-transform ${visuals ? "translate-x-4" : ""}`} />
-            </div>
-            Visual explanations
-          </label>
+          {/* Controls row — mode badge (left) balances the visuals toggle (right) */}
+          <div className="flex items-center justify-between w-[min(42rem,90%)] gap-3">
+            {activeSession ? <ModeBadge confidential={!!activeSession.confidential} modelLabel={labelForModel(activeSession.model)} /> : <span />}
+
+            <label className="flex items-center gap-2 text-xs select-none cursor-pointer text-foreground">
+              <div
+                onClick={() => setVisuals((v) => !v)}
+                className={`relative w-8 h-4 rounded-full transition-colors ${visuals ? "bg-primary" : "bg-border"}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-card shadow-sm transition-transform ${visuals ? "translate-x-4" : ""}`} />
+              </div>
+              Visual explanations
+            </label>
+          </div>
 
           {/* Input */}
           <div
