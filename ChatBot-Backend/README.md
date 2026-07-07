@@ -24,6 +24,7 @@ python app.py                    # http://127.0.0.1:5000
 | `app.py` | application factory + entry point |
 | `routes.py` | HTTP/SSE API (`/api` blueprint) |
 | `agent.py` | reasoning loop + streaming orchestrator |
+| `diagram.py` | diagram skill — fitting Mermaid type, semantic palette, safe rendering |
 | `onboarding.py` | assistant's reaction when a source is added |
 | `ingestion.py` | parsing, embedding, hybrid retrieval (RAG) |
 | `prompts.py` | persona (`soul.md`), session memory, tool schemas |

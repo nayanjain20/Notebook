@@ -62,6 +62,7 @@ Each backend module has one job:
 |--------|----------------|
 | `routes.py` | HTTP/SSE surface; validates input, delegates, shapes responses |
 | `agent.py` | the reasoning loop + streaming orchestrator |
+| `diagram.py` | the diagram skill — picks the fitting Mermaid type and renders flow-aware, palette-coloured diagrams (persona in `diagram_soul.md`) |
 | `onboarding.py` | what the assistant says when a source is added |
 | `ingestion.py` | parse → chunk → embed → hybrid retrieve (the RAG pipeline) |
 | `prompts.py` | persona (`soul.md`), session-memory rendering, tool schemas |

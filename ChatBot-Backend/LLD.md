@@ -38,7 +38,8 @@ avoid an import cycle.
 | `prompts.py` | loads `soul.md` as `AGENT_PERSONA`, `render_session_memory()`, and all tool schemas |
 | `helpers.py` | pure functions: history→messages, chunk digests/merge, Mermaid cleaning, session-update merge |
 | `ingestion.py` | parsing, chunking, embedding (via `EmbeddingProvider`), hybrid retrieval |
-| `agent.py` | retrieval, reflection, answer composition, quality gate, diagram gate, `run_agent_stream` |
+| `agent.py` | retrieval, reflection, answer composition, quality gate, `run_agent_stream`; delegates diagrams to the diagram skill |
+| `diagram.py` | the diagram skill: decides if a diagram helps, picks the fitting Mermaid type, renders flow-aware Mermaid, applies the semantic colour palette (persona in `diagram_soul.md`) |
 | `onboarding.py` | intro / acknowledgement / title generation for added sources |
 | `routes.py` | one `/api` blueprint; validation + delegation + JSON/SSE shaping |
 | `db.py` | SQLite persistence and migrations |
@@ -180,28 +181,53 @@ iteration limit the agent is instructed to `answer`. `clarify` ends the turn
 with a single question.
 
 ### Composition — `compose_answer(...)`
-Builds a system prompt from persona + session memory + a **teaching-example**
-instruction + **strict grounding rules**, formats retrieved chunks as numbered
-citable context, and calls `ANSWER_TOOL`. Post-processing:
+Produces the answer in **two calls** — far more reliable than cramming a long
+answer plus rich metadata into one constrained-JSON response (small local models
+truncate the answer badly when they must also fill a complex schema):
 
-- maps `source_indices` (1-based) to unique `sources`;
-- validates `suggested_links` and drops any already-added source;
-- returns `(structured, session_update)`.
+1. a **free-form markdown answer** (complete and well-formatted), built from
+   persona + session memory + a **teaching-example** instruction + **strict
+   grounding rules** over the numbered citable context;
+2. a small **`ANSWER_META_TOOL`** call for the metadata about that answer —
+   `source_indices`, confidence, follow-ups, suggested links, and session-memory
+   updates.
 
-Grounding guarantee: in a session, an answer with **no cited sources** is
-replaced by the "not found" message with confidence `0.0` — the agent never
-fabricates unsupported facts.
+Post-processing maps `source_indices` to unique `sources`, validates
+`suggested_links` (dropping already-added sources), and normalises confidence to
+`[0,1]` (`_normalize_confidence`, since some models return a percentage). Returns
+`(structured, session_update)`.
+
+Grounding guard: in a session, an answer with **no cited sources** is normally
+replaced by the "not found" message with confidence `0.0`. But if chunks *were*
+retrieved and the model gave a substantive answer yet forgot to cite (common on
+local models), a **citation safety-net** attributes the top retrieved passages
+instead of wrongly reporting "nothing found".
 
 ### Quality gate — `critique_answer(...)`
 Judges the draft; if weak it can request a deeper source (`fetch_url`) or a
 `better_query`, after which the answer is recomposed. Bounded by
-`MAX_ANSWER_REVISIONS`.
+`MAX_ANSWER_REVISIONS`. Fetches skip already-owned or previously-failed URLs.
 
-### Diagram gate — `generate_diagram(...)`
-A conservative `DIAGRAM_TOOL` call that returns a diagram **only** for
-relationship/architecture/hierarchy answers; otherwise `None`. When a running
-example is set, the diagram may be framed around that example.
-`helpers.clean_mermaid` strips fences and rejects non-Mermaid output.
+### Diagram skill — `diagram.generate(...)` (see `diagram.py`)
+A dedicated, persona-driven skill (`diagram_soul.md`). It reasons in two phases:
+
+1. **Plan** — decide whether a diagram genuinely helps (a *medium* bias tied to
+   complexity: draw for flows/architectures/relationships, skip simple/short
+   answers) and classify the **visual kind** — `flow` / `architecture` /
+   `hierarchy` → `flowchart`, plus `sequence`, `class`, `state`, `entity`,
+   `mindmap` → their matching Mermaid types.
+2. **Render** — generate the Mermaid, then `_sanitize` (normalise malformed
+   `style NODE:::role` → `class NODE role`, strip model-invented colours and
+   stray sequence-syntax) and `_looks_renderable` (drop diagrams with known-broken
+   constructs so a broken one is never shown). A **semantic colour palette** is
+   applied by injecting `classDef`s for node roles (process/decision/store/
+   external/terminator/highlight) — the app owns the colours, so the same role is
+   always the same colour.
+
+Adaptive by model: **cloud** does plan+render in one structured call and uses the
+full type set; **local** splits into two calls and is coerced to the types it
+renders reliably (flowchart/sequence), since local models mangle strict
+class/state/ER syntax.
 
 ---
 

@@ -61,6 +61,7 @@ Notebook/
 │   ├── app.py                    # application factory + entry point
 │   ├── routes.py                 # HTTP/SSE API (one /api blueprint)
 │   ├── agent.py                  # reasoning brain + streaming orchestrator
+│   ├── diagram.py               # diagram skill (type selection, palette, rendering)
 │   ├── onboarding.py             # reaction when a source is added
 │   ├── ingestion.py              # parsing, embedding, hybrid retrieval (RAG)
 │   ├── prompts.py                # persona, session memory, tool schemas
